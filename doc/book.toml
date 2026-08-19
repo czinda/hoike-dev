@@ -19,3 +19,4 @@ additional-js = ["theme/home-link.js", "mermaid.min.js", "mermaid-init.js"]
 
 [preprocessor.mermaid]
 command = "mdbook-mermaid"
+optional = true

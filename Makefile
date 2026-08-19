@@ -7,6 +7,8 @@
 #   make api      - Copy rustdoc from the hoike repo
 #   make clean    - Remove build artifacts
 
+export PATH := $(HOME)/.cargo/bin:$(PATH)
+
 HOIKE_REPO   ?= ../hoike
 DEPLOY_DIR   := deploy
 DOC_BUILD    := doc-build
@@ -35,7 +37,7 @@ serve:
 	cd doc && mdbook serve --open
 
 deploy: build
-	wrangler pages deploy $(DEPLOY_DIR)
+	wrangler pages deploy $(DEPLOY_DIR) --project-name hoike-dev
 
 clean:
 	rm -rf $(DEPLOY_DIR) $(DOC_BUILD) api
