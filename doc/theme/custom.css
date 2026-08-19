@@ -1,0 +1,307 @@
+/* -- Home button (injected via JS, styled here) --
+   A floating "hoike.dev" link in the top-left of the sidebar
+   --------------------------------------------------------- */
+
+.hoike-home-link {
+  display: block;
+  font-family: ui-monospace, 'Cascadia Code', 'Fira Code', monospace;
+  font-size: 0.8rem;
+  color: #7ee787 !important;
+  padding: 0.75rem 1.25rem;
+  border-bottom: 1px solid #30363d;
+  text-decoration: none !important;
+  transition: background 0.2s;
+}
+
+.hoike-home-link:hover {
+  background: #161b22;
+}
+
+.hoike-home-link::before {
+  content: '\2190  ';
+}
+
+/* -- hoike.dev unified theme --
+   Match the landing page: #0d1117 bg, #c9d1d9 text, #7ee787 accent
+   Applied on top of mdBook's navy theme
+   --------------------------------------------------------- */
+
+:root {
+  --hoike-bg:         #0d1117;
+  --hoike-bg-card:    #161b22;
+  --hoike-bg-code:    #0a0e14;
+  --hoike-border:     #30363d;
+  --hoike-text:       #c9d1d9;
+  --hoike-text-bright:#f0f6fc;
+  --hoike-accent:     #7ee787;
+  --hoike-accent-dim: #3fb950;
+  --hoike-mono:       ui-monospace, 'Cascadia Code', 'Fira Code', 'JetBrains Mono', Menlo, monospace;
+}
+
+/* -- Sidebar -------------------------------------- */
+.sidebar,
+html.navy .sidebar {
+  background: var(--hoike-bg) !important;
+  border-right: 1px solid var(--hoike-border) !important;
+}
+
+.sidebar .sidebar-scrollbox {
+  background: var(--hoike-bg) !important;
+}
+
+.sidebar .chapter li a,
+html.navy .sidebar .chapter li a {
+  color: #8b949e !important;
+}
+
+.sidebar .chapter li a:hover,
+.sidebar .chapter li a.active,
+html.navy .sidebar .chapter li a:hover,
+html.navy .sidebar .chapter li a.active {
+  color: var(--hoike-accent) !important;
+}
+
+.sidebar .chapter li.part-title {
+  color: var(--hoike-text-bright) !important;
+  font-weight: 700;
+  border-bottom: 1px solid var(--hoike-border);
+  padding-bottom: 0.4rem;
+  margin-bottom: 0.4rem;
+}
+
+/* -- Main content area ---------------------------- */
+.page,
+.content,
+html.navy .page,
+html.navy .content {
+  background: var(--hoike-bg) !important;
+}
+
+.content main,
+html.navy .content main {
+  color: var(--hoike-text) !important;
+}
+
+/* -- Menu bar ------------------------------------- */
+.menu-bar,
+html.navy .menu-bar,
+.menu-bar.bordered {
+  background: var(--hoike-bg) !important;
+  border-bottom: 1px solid var(--hoike-border) !important;
+}
+
+.menu-bar i,
+.menu-bar .icon-button,
+html.navy .menu-bar i,
+html.navy .menu-bar .icon-button {
+  color: #8b949e !important;
+}
+
+.menu-bar i:hover,
+.menu-bar .icon-button:hover {
+  color: var(--hoike-accent) !important;
+}
+
+/* -- Typography ----------------------------------- */
+.content h1,
+html.navy .content h1 {
+  color: var(--hoike-text-bright) !important;
+  border-bottom: 1px solid var(--hoike-border) !important;
+}
+
+.content h2,
+.content h3,
+.content h4,
+html.navy .content h2,
+html.navy .content h3,
+html.navy .content h4 {
+  color: var(--hoike-text-bright) !important;
+}
+
+.content a,
+html.navy .content a {
+  color: var(--hoike-accent) !important;
+}
+
+.content a:hover {
+  color: #9aefad !important;
+}
+
+/* -- Code blocks ---------------------------------- */
+.content pre,
+html.navy .content pre {
+  background: var(--hoike-bg-code) !important;
+  border: 1px solid var(--hoike-border) !important;
+  border-radius: 6px !important;
+}
+
+.content code,
+html.navy .content code {
+  font-family: var(--hoike-mono) !important;
+}
+
+.content p > code,
+.content li > code,
+.content td > code,
+html.navy .content p > code,
+html.navy .content li > code,
+html.navy .content td > code {
+  background: var(--hoike-bg-code) !important;
+  border: 1px solid var(--hoike-border) !important;
+  border-radius: 3px !important;
+  padding: 0.1rem 0.35rem !important;
+  color: var(--hoike-text-bright) !important;
+}
+
+/* -- Tables --------------------------------------- */
+.content table,
+html.navy .content table {
+  border-collapse: collapse !important;
+}
+
+.content table th,
+html.navy .content table th {
+  background: var(--hoike-bg-card) !important;
+  color: var(--hoike-accent) !important;
+  border: 1px solid var(--hoike-border) !important;
+  font-family: var(--hoike-mono) !important;
+  font-size: 0.85rem;
+}
+
+.content table td,
+html.navy .content table td {
+  border: 1px solid var(--hoike-border) !important;
+  color: var(--hoike-text) !important;
+}
+
+.content table tr:hover td {
+  background: rgba(255,255,255,0.02) !important;
+}
+
+/* -- Blockquotes ---------------------------------- */
+.content blockquote,
+html.navy .content blockquote {
+  border-left: 3px solid var(--hoike-accent-dim) !important;
+  background: var(--hoike-bg-card) !important;
+  color: #8b949e !important;
+  padding: 0.75rem 1rem !important;
+  border-radius: 0 6px 6px 0 !important;
+}
+
+/* -- Nav chapter arrows and buttons --------------- */
+.nav-chapters,
+html.navy .nav-chapters {
+  color: #8b949e !important;
+}
+
+.nav-chapters:hover {
+  color: var(--hoike-accent) !important;
+}
+
+/* -- Theme popup ---------------------------------- */
+#theme-list,
+html.navy #theme-list {
+  background: var(--hoike-bg-card) !important;
+  border: 1px solid var(--hoike-border) !important;
+}
+
+#theme-list li,
+html.navy #theme-list li {
+  color: var(--hoike-text) !important;
+}
+
+/* -- Search --------------------------------------- */
+#searchbar,
+html.navy #searchbar {
+  background: var(--hoike-bg-card) !important;
+  border: 1px solid var(--hoike-border) !important;
+  color: var(--hoike-text) !important;
+}
+
+.searchresults a,
+html.navy .searchresults a {
+  color: var(--hoike-accent) !important;
+}
+
+.search-results .teaser,
+.searchresults .teaser {
+  color: #8b949e !important;
+}
+
+/* -- Scrollbar ------------------------------------ */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--hoike-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--hoike-border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #484f58;
+}
+
+/* -- HR / Dividers -------------------------------- */
+.content hr {
+  border-color: var(--hoike-border) !important;
+}
+
+/* -- Strong/Bold ---------------------------------- */
+.content strong {
+  color: var(--hoike-text-bright) !important;
+}
+
+/* -- Mermaid diagrams ----------------------------- */
+.mermaid {
+  background: transparent !important;
+  text-align: center;
+  margin: 2rem 0;
+  overflow-x: auto;
+}
+
+.mermaid svg {
+  min-width: 700px;
+  max-width: none !important;
+  width: 100% !important;
+  height: auto !important;
+  min-height: 400px;
+}
+
+.mermaid .nodeLabel {
+  color: #e2e8f0 !important;
+  font-family: var(--hoike-mono) !important;
+  font-size: 1rem !important;
+  line-height: 1.4 !important;
+}
+
+.mermaid .edgeLabel {
+  background-color: var(--hoike-bg) !important;
+  color: #c9d1d9 !important;
+  font-size: 0.9rem !important;
+  padding: 4px 8px !important;
+  border-radius: 3px;
+}
+
+.mermaid .edgeLabel p {
+  font-size: 0.9rem !important;
+  color: #c9d1d9 !important;
+}
+
+.mermaid .cluster-label .nodeLabel {
+  font-size: 0.95rem !important;
+  color: #8b949e !important;
+}
+
+.mermaid .flowchart-link {
+  stroke: #484f58 !important;
+  stroke-width: 1.5px !important;
+}
+
+.mermaid marker path {
+  fill: #8b949e !important;
+}

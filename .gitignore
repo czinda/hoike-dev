@@ -1,0 +1,15 @@
+node_modules/
+.wrangler/
+.env
+.env.*
+!.env.example
+.DS_Store
+
+# Generated cargo doc output -- rebuild with:
+#   cd ../hoike && cargo doc --workspace --no-deps
+#   cp -r target/doc ../hoike-dev/api
+api/
+
+# mdBook build output
+doc-build/
+deploy/

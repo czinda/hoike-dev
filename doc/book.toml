@@ -1,0 +1,21 @@
+[book]
+title = "hoike documentation"
+authors = ["Chris Zinda"]
+language = "en"
+src = "src"
+
+[build]
+build-dir = "../doc-build"
+
+[output.html]
+default-theme = "navy"
+preferred-dark-theme = "navy"
+git-repository-url = "https://github.com/czinda/hoike"
+site-url = "/doc/"
+additional-css = ["theme/custom.css"]
+additional-js = ["theme/home-link.js", "mermaid.min.js", "mermaid-init.js"]
+
+[preprocessor]
+
+[preprocessor.mermaid]
+command = "mdbook-mermaid"

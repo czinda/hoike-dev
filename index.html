@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>hoike — OCSP Responder</title>
+  <meta name="description" content="A Rust OCSP responder for pre-signed, replayable, multi-CA, highly available certificate status. Signer/edge split architecture with post-quantum ML-DSA support.">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <style>
+    :root {
+      --bg:         #0d1117;
+      --bg-card:    #161b22;
+      --bg-code:    #0a0e14;
+      --border:     #30363d;
+      --text:       #c9d1d9;
+      --text-bright:#f0f6fc;
+      --accent:     #7ee787;
+      --accent-dim: #3fb950;
+      --green:      #3fb950;
+      --mono:       ui-monospace, 'Cascadia Code', 'Fira Code', 'JetBrains Mono', Menlo, monospace;
+      --sans:       -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--sans);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .container {
+      max-width: 960px;
+      margin: 0 auto;
+      padding: 0 1.5rem;
+    }
+
+    /* -- Nav ---------------------------------------- */
+    .nav {
+      border-bottom: 1px solid var(--border);
+      padding: 1rem 0;
+    }
+    .nav-inner {
+      display: flex;
+      align-items: center;
+      gap: 2rem;
+    }
+    .nav-brand {
+      font-family: var(--mono);
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--text-bright);
+    }
+    .nav-links {
+      display: flex;
+      gap: 1.5rem;
+      list-style: none;
+    }
+    .nav-links a {
+      font-family: var(--mono);
+      font-size: 0.85rem;
+      color: #8b949e;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover { color: var(--accent); text-decoration: none; }
+
+    /* -- Hero --------------------------------------- */
+    .hero {
+      padding: 5rem 0 4rem;
+      text-align: center;
+    }
+
+    .hero-logo {
+      margin-bottom: 1.5rem;
+    }
+
+    .hero-name {
+      font-family: var(--mono);
+      font-size: 4.5rem;
+      font-weight: 700;
+      color: var(--text-bright);
+      letter-spacing: -0.02em;
+      margin-bottom: 0.25rem;
+    }
+
+    .hero-tagline {
+      font-family: var(--mono);
+      font-size: 1.15rem;
+      color: var(--accent);
+      margin-bottom: 1.5rem;
+      letter-spacing: 0.04em;
+    }
+
+    .hero-desc {
+      font-size: 1.125rem;
+      max-width: 640px;
+      margin: 0 auto 2rem;
+      color: var(--text);
+    }
+
+    .hero-ctas {
+      display: flex;
+      justify-content: center;
+      gap: 1rem;
+      margin-bottom: 2.5rem;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      font-family: var(--mono);
+      font-size: 0.9rem;
+      padding: 0.65rem 1.5rem;
+      border-radius: 6px;
+      font-weight: 600;
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #0d1117;
+      border: 1px solid var(--accent);
+    }
+    .btn-primary:hover {
+      background: #9aefad;
+      text-decoration: none;
+    }
+
+    .btn-secondary {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover {
+      border-color: #8b949e;
+      text-decoration: none;
+    }
+
+    .hero-metaphor {
+      font-size: 0.85rem;
+      color: #8b949e;
+      font-style: italic;
+      max-width: 520px;
+      margin: 0 auto;
+      border-left: 2px solid var(--accent-dim);
+      padding-left: 1rem;
+      text-align: left;
+    }
+
+    /* -- Section ------------------------------------ */
+    section { padding: 3.5rem 0; }
+
+    .section-header {
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+
+    .section-title {
+      font-family: var(--mono);
+      font-size: 1.5rem;
+      color: var(--text-bright);
+      margin-bottom: 0.5rem;
+    }
+
+    .section-subtitle {
+      font-size: 0.95rem;
+      color: #8b949e;
+      max-width: 560px;
+      margin: 0 auto;
+    }
+
+    .divider {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 0;
+    }
+
+    /* -- Features Grid ------------------------------ */
+    .features {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1rem;
+    }
+
+    .feature-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1.25rem;
+      transition: border-color 0.2s;
+    }
+
+    .feature-card:hover {
+      border-color: var(--accent-dim);
+    }
+
+    .feature-card h3 {
+      font-family: var(--mono);
+      font-size: 0.925rem;
+      color: var(--text-bright);
+      margin-bottom: 0.5rem;
+    }
+
+    .feature-card p {
+      font-size: 0.85rem;
+      color: #8b949e;
+      line-height: 1.5;
+    }
+
+    /* -- Terminal ------------------------------------ */
+    .terminal {
+      background: var(--bg-code);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+      max-width: 720px;
+      margin: 0 auto;
+    }
+
+    .terminal-bar {
+      background: #161b22;
+      padding: 0.5rem 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .terminal-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #30363d;
+    }
+
+    .terminal-title {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      color: #484f58;
+      margin-left: 0.5rem;
+    }
+
+    .terminal-body {
+      padding: 1.25rem 1.5rem;
+      overflow-x: auto;
+    }
+
+    .terminal-body code {
+      font-family: var(--mono);
+      font-size: 0.825rem;
+      line-height: 1.7;
+      color: var(--text);
+      white-space: pre;
+      display: block;
+    }
+
+    .terminal-body .prompt { color: var(--green); }
+    .terminal-body .cmd { color: var(--text-bright); }
+    .terminal-body .flag { color: var(--accent); }
+    .terminal-body .info { color: #58a6ff; }
+    .terminal-body .dim { color: #484f58; }
+    .terminal-body .log { color: #8b949e; }
+
+    .terminal-link {
+      display: block;
+      text-align: center;
+      margin-top: 1.25rem;
+      font-family: var(--mono);
+      font-size: 0.85rem;
+    }
+
+    /* -- Stats Callout ------------------------------ */
+    .stats-callout {
+      text-align: center;
+      padding: 4rem 0;
+    }
+
+    .stats-number {
+      font-family: var(--mono);
+      font-size: 5rem;
+      font-weight: 700;
+      color: var(--accent);
+      line-height: 1;
+      margin-bottom: 0.5rem;
+    }
+
+    .stats-label {
+      font-family: var(--mono);
+      font-size: 1.1rem;
+      color: var(--text-bright);
+      margin-bottom: 1rem;
+    }
+
+    .stats-desc {
+      font-size: 0.9rem;
+      color: #8b949e;
+      max-width: 520px;
+      margin: 0 auto 1.25rem;
+    }
+
+    /* -- Compliance --------------------------------- */
+    .compliance-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      list-style: none;
+      justify-content: center;
+    }
+
+    .compliance-list li {
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.4rem 0.75rem;
+      color: #8b949e;
+    }
+
+    .compliance-list li strong {
+      color: var(--text-bright);
+    }
+
+    /* -- Quick Start -------------------------------- */
+    .quickstart-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1.25rem;
+    }
+
+    .quickstart-card {
+      background: var(--bg-code);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1.25rem 1.5rem;
+      overflow-x: auto;
+    }
+
+    .quickstart-card .qs-label {
+      font-family: var(--mono);
+      font-size: 0.7rem;
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 0.75rem;
+    }
+
+    .quickstart-card code {
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      line-height: 1.7;
+      color: var(--text);
+      white-space: pre;
+      display: block;
+    }
+
+    .quickstart-card .comment { color: #484f58; }
+    .quickstart-card .cmd { color: var(--text-bright); }
+    .quickstart-card .flag { color: var(--accent); }
+
+    /* -- Architecture ------------------------------- */
+    .arch-diagram {
+      background: var(--bg-code);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 2rem 2rem;
+      overflow-x: auto;
+      font-family: var(--mono);
+      font-size: 0.85rem;
+      line-height: 1.7;
+      color: #8b949e;
+      white-space: pre;
+      width: fit-content;
+      max-width: min(960px, 100%);
+      margin: 0 auto;
+      box-sizing: border-box;
+    }
+
+    .arch-diagram .hl { color: var(--accent); }
+    .arch-diagram .dim { color: #484f58; }
+    .arch-diagram .warn { color: #f0883e; }
+
+    /* -- Footer ------------------------------------- */
+    footer {
+      padding: 3rem 0;
+      border-top: 1px solid var(--border);
+    }
+
+    .footer-grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr;
+      gap: 2rem;
+      margin-bottom: 2rem;
+    }
+
+    .footer-brand {
+      font-family: var(--mono);
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: var(--text-bright);
+      margin-bottom: 0.5rem;
+    }
+
+    .footer-desc {
+      font-size: 0.8rem;
+      color: #484f58;
+      max-width: 280px;
+    }
+
+    .footer-col h4 {
+      font-family: var(--mono);
+      font-size: 0.75rem;
+      color: #8b949e;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 0.75rem;
+    }
+
+    .footer-col ul {
+      list-style: none;
+    }
+
+    .footer-col li {
+      margin-bottom: 0.4rem;
+    }
+
+    .footer-col a {
+      font-size: 0.85rem;
+      color: #8b949e;
+      transition: color 0.2s;
+    }
+
+    .footer-col a:hover {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .footer-bottom {
+      text-align: center;
+      font-size: 0.75rem;
+      color: #484f58;
+      border-top: 1px solid var(--border);
+      padding-top: 1.5rem;
+    }
+
+    /* -- Responsive --------------------------------- */
+    @media (max-width: 600px) {
+      .hero-name { font-size: 3rem; }
+      .hero { padding: 3.5rem 0 3rem; }
+      .features { grid-template-columns: 1fr; }
+      .quickstart-grid { grid-template-columns: 1fr; }
+      .footer-grid { grid-template-columns: 1fr; gap: 1.5rem; }
+      .stats-number { font-size: 3.5rem; }
+      .hero-ctas { flex-direction: column; align-items: center; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Nav -->
+  <nav class="nav">
+    <div class="container nav-inner">
+      <a href="/" class="nav-brand">hoike</a>
+      <ul class="nav-links">
+        <li><a href="/doc/">Docs</a></li>
+        <li><a href="/doc/operator/configuration.html">Config</a></li>
+        <li><a href="/doc/compliance/rfc-support.html">RFCs</a></li>
+        <li><a href="/api/">API</a></li>
+        <li><a href="https://github.com/czinda/hoike">Source</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <!-- Hero -->
+  <header class="hero">
+    <div class="container">
+      <div class="hero-logo">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="120" height="120">
+          <path d="M32 4 L56 16 L56 36 Q56 52 32 60 Q8 52 8 36 L8 16 Z"
+                fill="#161b22" stroke="#7ee787" stroke-width="2"/>
+          <path d="M22 32 L29 39 L42 24" fill="none" stroke="#7ee787" stroke-width="3.5"
+                stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <h1 class="hero-name">hoike</h1>
+      <p class="hero-tagline">OCSP responder</p>
+      <p class="hero-desc">
+        A pre-signed, replayable, multi-CA OCSP responder with keyless edge serving
+        and post-quantum ML-DSA support. Built in Rust.
+      </p>
+      <div class="hero-ctas">
+        <a href="/doc/quickstart/install.html" class="btn btn-primary">Get Started</a>
+        <a href="https://github.com/czinda/hoike" class="btn btn-secondary">View on GitHub</a>
+      </div>
+      <blockquote class="hero-metaphor">
+        <strong>hoike</strong> (Hawaiian) &mdash; to show, to exhibit, to testify.
+        An OCSP responder does exactly one thing: it testifies to the status of
+        someone else's certificate.
+      </blockquote>
+    </div>
+  </header>
+
+  <hr class="divider">
+
+  <!-- Features -->
+  <section>
+    <div class="container">
+      <div class="section-header">
+        <h2 class="section-title">Built for Private PKI</h2>
+        <p class="section-subtitle">Signer/edge split architecture. The machine that signs status and the machine that serves it are never the same machine.</p>
+      </div>
+      <div class="features">
+        <div class="feature-card">
+          <h3>Pre-Signed Responses</h3>
+          <p>Responses are batch-signed by the signer tier and sealed into ahu bundles.
+             Edge nodes serve stored bytes verbatim &mdash; no keys, no signing,
+             no HSM access on the hot path.</p>
+        </div>
+        <div class="feature-card">
+          <h3>Keyless Edge Nodes</h3>
+          <p>Edge nodes hold no signing keys. An edge compromise cannot produce a
+             false <code>good</code> &mdash; only denial of service or stale replay
+             within <code>nextUpdate</code>.</p>
+        </div>
+        <div class="feature-card">
+          <h3>Multi-CA Routing</h3>
+          <p>One responder instance serves many CAs. Routing uses the
+             <code>issuerKeyHash</code> multimap from each OCSP request's
+             <code>CertID</code>, handling re-keyed and cross-signed CAs correctly.</p>
+        </div>
+        <div class="feature-card">
+          <h3>Post-Quantum Ready</h3>
+          <p>ML-DSA-44, ML-DSA-65, and ML-DSA-87 signing as first-class configurations,
+             not patches. Batching amortizes post-quantum signature size across
+             certificate buckets.</p>
+        </div>
+        <div class="feature-card">
+          <h3>ahu Bundle Format</h3>
+          <p>Self-describing containers with CBOR manifest, CMS seal, and a sorted
+             index for O(log n) binary search. Designed for zero-copy serving
+             via <code>mmap</code>.</p>
+        </div>
+        <div class="feature-card">
+          <h3>SWIM Gossip</h3>
+          <p>Edge fleet coordination via the SWIM protocol (foca). Generation
+             announcements, membership tracking, and urgent revocation notices &mdash;
+             gossip is never authoritative for status.</p>
+        </div>
+        <div class="feature-card">
+          <h3>Air-Gap Ready</h3>
+          <p>Bundles are sealed files that cross air gaps on removable media.
+             Enclave mode uses byte-identical code paths &mdash; only acquisition
+             differs. No gossip, no upstream, full functionality.</p>
+        </div>
+        <div class="feature-card">
+          <h3>Anti-Rollback</h3>
+          <p>Epoch chain with persisted high-water marks prevents replay of older
+             generations. Fork detection catches duplicate signers immediately.
+             Stale-generation alerts before <code>nextUpdate</code> expires.</p>
+        </div>
+        <div class="feature-card">
+          <h3>Zero-Copy Serving</h3>
+          <p>Responses are <code>mmap</code>'d and written directly via
+             <code>writev</code>. No parse, no copy, no re-encode on the hot path.
+             Horizontal scaling limited only by network bandwidth.</p>
+        </div>
+        <div class="feature-card">
+          <h3>Delta Bundles</h3>
+          <p>Incremental updates distribute only changes since the last full
+             generation. Steady-state mirrors receive deltas; full bundles
+             only on join or chain-length exhaustion.</p>
+        </div>
+        <div class="feature-card">
+          <h3>Nonce Policies</h3>
+          <p>Per-CA nonce handling: <code>ignore</code> for pre-signed responses,
+             <code>forward</code> to proxy to a signer. Configuring live signing
+             on an edge is a startup error, not a runtime surprise.</p>
+        </div>
+        <div class="feature-card">
+          <h3>Dual CertID</h3>
+          <p>One <code>BasicOCSPResponse</code> carries both SHA-1 and SHA-256
+             <code>CertID</code> entries per RFC 9919. One signature, one payload,
+             two index records. Log SHA-1 usage to track migration.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="divider">
+
+  <!-- Terminal Demo -->
+  <section>
+    <div class="container">
+      <div class="section-header">
+        <h2 class="section-title">Up and Running in Minutes</h2>
+        <p class="section-subtitle">Sign a bundle, inspect it, start the responder.</p>
+      </div>
+      <div class="terminal">
+        <div class="terminal-bar">
+          <span class="terminal-dot"></span>
+          <span class="terminal-dot"></span>
+          <span class="terminal-dot"></span>
+          <span class="terminal-title">terminal</span>
+        </div>
+        <div class="terminal-body"><code><span class="prompt">$</span> <span class="cmd">hoike sign</span> <span class="flag">--ca enterprise-ca --crl revoked.crl -o bundle.ahu</span>
+
+<span class="info"> INFO</span> <span class="log">hoike::sign: reading CRL from 'revoked.crl' (42 entries)</span>
+<span class="info"> INFO</span> <span class="log">hoike::sign: signing with ecdsa-p256, epoch 1</span>
+<span class="info"> INFO</span> <span class="log">hoike::sign: wrote bundle.ahu (42 good, 3 revoked, 84 index entries)</span>
+
+<span class="prompt">$</span> <span class="cmd">ahu inspect</span> <span class="flag">bundle.ahu</span>
+
+<span class="log">format    : ahu v1</span>
+<span class="log">producer  : hoike 0.1.0</span>
+<span class="log">epoch     : 1</span>
+<span class="log">scope     : enterprise-ca (partial)</span>
+<span class="log">algorithm : ecdsa-p256</span>
+<span class="log">entries   : 84 (42 good, 3 revoked, dual CertID)</span>
+<span class="log">size      : 48.2 KB (zstd compressed)</span>
+
+<span class="prompt">$</span> <span class="cmd">hoike serve</span> <span class="flag">--config hoike.toml</span>
+
+<span class="info"> INFO</span> <span class="log">hoike: loading config from 'hoike.toml'</span>
+<span class="info"> INFO</span> <span class="log">hoike::core: loaded CA 'enterprise-ca' (45 entries, epoch 1)</span>
+<span class="info"> INFO</span> <span class="log">hoike::server: OCSP responder listening on 0.0.0.0:2560</span></code></div>
+      </div>
+      <a href="/doc/quickstart/first-bundle.html" class="terminal-link">Read the full quickstart guide &rarr;</a>
+    </div>
+  </section>
+
+  <hr class="divider">
+
+  <!-- Stats Callout -->
+  <section class="stats-callout">
+    <div class="container">
+      <div class="stats-number">4</div>
+      <p class="stats-label">RFCs and standards implemented &mdash; 20 conformance assertions</p>
+      <p class="stats-desc">
+        Full OCSP protocol with pre-signed response production, HTTP caching profile,
+        nonce handling rules, and AIA discovery. Every protocol claim validated by
+        wire-format conformance tests against OpenSSL and Go clients.
+      </p>
+      <ul class="compliance-list">
+        <li><strong>RFC 6960</strong> OCSP</li>
+        <li><strong>RFC 9919</strong> Profile</li>
+        <li><strong>RFC 9654</strong> Nonce</li>
+        <li><strong>RFC 5280</strong> AIA</li>
+        <li><strong>FIPS 204</strong> ML-DSA</li>
+        <li><strong>RFC 8949</strong> CBOR</li>
+      </ul>
+      <a href="/doc/compliance/rfc-support.html" class="terminal-link" style="margin-top:1.5rem;">View RFC compliance details &rarr;</a>
+    </div>
+  </section>
+
+  <hr class="divider">
+
+  <!-- Quick Start -->
+  <section>
+    <div class="container">
+      <div class="section-header">
+        <h2 class="section-title">Quick Start</h2>
+      </div>
+      <div class="quickstart-grid">
+        <div class="quickstart-card">
+          <p class="qs-label">Container</p>
+          <code><span class="comment"># Build the container image</span>
+<span class="cmd">podman build</span> <span class="flag">-t hoike .</span>
+
+<span class="cmd">podman run</span> --rm \
+  -v ./hoike.toml:/etc/hoike/hoike.toml:ro \
+  -v ./bundles:/var/lib/hoike/bundles:ro \
+  -p <span class="flag">2560</span>:2560 \
+  hoike</code>
+        </div>
+        <div class="quickstart-card">
+          <p class="qs-label">Build from source</p>
+          <code><span class="cmd">git clone</span> <span class="flag">https://github.com/czinda/hoike</span>
+<span class="cmd">cd</span> hoike
+
+<span class="cmd">cargo build</span> --release
+<span class="comment"># Two binaries: hoike (~8 MB) and ahu (~1 MB)</span>
+<span class="cmd">cargo run</span> --release -p hoike-cli -- \
+  <span class="flag">serve --config</span> hoike.toml</code>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <hr class="divider">
+
+  <!-- Architecture -->
+  <section>
+    <div class="container">
+      <div class="section-header">
+        <h2 class="section-title">Architecture</h2>
+        <p class="section-subtitle">A Cargo workspace with six crates. The signer holds keys; the edge serves bytes.</p>
+      </div>
+      <div class="arch-diagram">   <span class="dim">revocation source</span>            <span class="hl">SIGNER TIER</span>
+   <span class="dim">(CRL, Dogtag, 389 DS)</span>  ────▶  <span class="hl">batch signs</span>
+                                    <span class="hl">produces .ahu</span>
+                                        │
+               ┌────────────────────────┼────────────────────────┐
+               │                        │                        │
+         ┌─────▼──────┐          ┌──────▼─────┐          ┌──────▼──────┐
+         │ <span class="hl">EDGE NODE</span>  │◀──gossip──▶│ <span class="hl">EDGE NODE</span>  │◀──gossip──▶│ <span class="hl">EDGE NODE</span>   │
+         │  <span class="dim">keyless</span>   │          │  <span class="dim">keyless</span>   │          │  <span class="dim">keyless</span>    │
+         └─────┬──────┘          └──────┬─────┘          └──────┬──────┘
+               │                        │                        │
+               └────────────── <span class="dim">clients</span> ─┴────────────────────────┘
+
+         ┌──────────────────────────────────────────────┐
+         │ <span class="warn">AIR-GAPPED ENCLAVE</span>                           │
+         │   edge node, bundle imported from media      │
+         │   no gossip, no upstream, identical code      │
+         └──────────────────────────────────────────────┘</div>
+    </div>
+  </section>
+
+  <hr class="divider">
+
+  <!-- Workspace -->
+  <section>
+    <div class="container">
+      <div class="section-header">
+        <h2 class="section-title">Workspace</h2>
+        <p class="section-subtitle">Six crates with clean dependency boundaries.</p>
+      </div>
+      <div class="features" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
+        <div class="feature-card">
+          <h3>ahu</h3>
+          <p>Bundle format: read, write, verify. Apache-2.0 OR MIT. No server dependencies.</p>
+        </div>
+        <div class="feature-card">
+          <h3>hoike-core</h3>
+          <p>CertID routing, request parsing, config, policy, state store.</p>
+        </div>
+        <div class="feature-card">
+          <h3>hoike-sign</h3>
+          <p>Signing, CRL adapter, OCSP response generation, batch production.</p>
+        </div>
+        <div class="feature-card">
+          <h3>hoike-server</h3>
+          <p>HTTP request path via axum. GET and POST handlers, RFC 9919 headers.</p>
+        </div>
+        <div class="feature-card">
+          <h3>hoike-gossip</h3>
+          <p>SWIM membership and generation announcements via foca.</p>
+        </div>
+        <div class="feature-card">
+          <h3>hoike-cli</h3>
+          <p>hoike + ahu binaries. The operator-facing surface.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <div class="container">
+      <div class="footer-grid">
+        <div>
+          <p class="footer-brand">hoike</p>
+          <p class="footer-desc">A Rust OCSP responder for pre-signed, replayable, multi-CA, highly available certificate status.</p>
+        </div>
+        <div class="footer-col">
+          <h4>Quick Links</h4>
+          <ul>
+            <li><a href="/doc/">Documentation</a></li>
+            <li><a href="/doc/operator/configuration.html">Configuration</a></li>
+            <li><a href="/doc/compliance/rfc-support.html">RFC Compliance</a></li>
+            <li><a href="/api/">API Reference</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>Community</h4>
+          <ul>
+            <li><a href="https://github.com/czinda/hoike">Source</a></li>
+            <li><a href="https://github.com/czinda/hoike/issues">Issue Tracker</a></li>
+            <li><a href="/doc/developer/contributing.html">Contributing</a></li>
+          </ul>
+        </div>
+      </div>
+      <p class="footer-bottom">
+        &copy; 2026 hoike contributors. ahu crate: Apache-2.0 OR MIT. Server crates: GPL-3.0-or-later.
+      </p>
+    </div>
+  </footer>
+
+</body>
+</html>

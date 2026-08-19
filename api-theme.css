@@ -1,0 +1,70 @@
+/* -- hoike.dev unified theme for rustdoc --
+   Override rustdoc's default colors to match the landing page
+   Injected via --extend-css during cargo doc build
+   --------------------------------------------------------- */
+
+/* -- Home banner ----------------------------------- */
+.hoike-home-banner {
+  display: block;
+  background: #0d1117;
+  border-bottom: 1px solid #30363d;
+  padding: 0.5rem 1.25rem;
+  font-family: ui-monospace, 'Cascadia Code', 'Fira Code', monospace;
+  font-size: 0.8rem;
+  color: #7ee787 !important;
+  text-decoration: none !important;
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+}
+
+.hoike-home-banner:hover {
+  background: #161b22;
+}
+
+:root[data-theme="dark"],
+:root[data-theme="ayu"] {
+  --main-background-color: #0d1117;
+  --main-color: #c9d1d9;
+  --settings-input-color: #c9d1d9;
+  --sidebar-background-color: #0d1117;
+  --sidebar-background-color-hover: #161b22;
+  --code-block-background-color: #0a0e14;
+  --scrollbar-track-background-color: #0d1117;
+  --scrollbar-thumb-background-color: #30363d;
+  --scrollbar-color: #30363d #0d1117;
+  --headings-border-bottom-color: #30363d;
+  --border-color: #30363d;
+  --button-background-color: #161b22;
+  --right-side-color: #8b949e;
+  --code-highlight-kw-color: #7ee787;
+  --code-highlight-self-color: #7ee787;
+  --code-highlight-attr-color: #7ee787;
+  --code-highlight-macro-color: #3fb950;
+  --code-highlight-string-color: #a5d6ff;
+  --code-highlight-comment-color: #484f58;
+  --src-line-numbers-span-color: #484f58;
+  --search-result-link-focus-background-color: #161b22;
+  --search-result-border-color: #30363d;
+  --stab-background-color: #161b22;
+  --stab-code-color: #c9d1d9;
+  --search-color: #c9d1d9;
+  --crate-search-hover-border: #7ee787;
+}
+
+/* Force the ayu/dark theme for consistency */
+:root[data-theme="dark"] .sidebar,
+:root[data-theme="ayu"] .sidebar {
+  background-color: #0d1117;
+  border-right: 1px solid #30363d;
+}
+
+:root[data-theme="dark"] a,
+:root[data-theme="ayu"] a {
+  color: #7ee787;
+}
+
+:root[data-theme="dark"] a:hover,
+:root[data-theme="ayu"] a:hover {
+  color: #9aefad;
+}

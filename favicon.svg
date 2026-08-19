@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- Shield shape -->
+  <path d="M32 4 L56 16 L56 36 Q56 52 32 60 Q8 52 8 36 L8 16 Z"
+        fill="#161b22" stroke="#7ee787" stroke-width="2"/>
+  <!-- Checkmark (verification / OCSP good) -->
+  <path d="M22 32 L29 39 L42 24" fill="none" stroke="#7ee787" stroke-width="3.5"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
