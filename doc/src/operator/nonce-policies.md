@@ -86,4 +86,4 @@ The nonce policy directly affects the serving path:
 
 - **`ignore`**: O(1) hash lookup + O(log n) binary search in the bundle index. No cryptography at serving time.
 - **`forward`**: Same as `ignore` for non-nonce requests. Nonce-bearing requests add a network round-trip to the signer plus a signing operation. Latency depends on signer proximity and signing algorithm.
-- **`live`**: Every request requires a signing operation. Throughput is bounded by the signing rate, which varies by algorithm (ECDSA P-256 is fast; ML-DSA-65 is slower). No bundle index is consulted — the signer produces responses directly from revocation state.
+- **`live`**: The signer looks up the CertID status from its loaded bundle (pre-signed response exists → status is known), then builds a fresh `SingleResponse` with that status and the client's nonce in `responseExtensions`, and signs it. This avoids a round-trip to the CA — the signer already has the data. Throughput is bounded by the signing rate (ECDSA P-256: fast; ML-DSA-65: slower).

@@ -48,6 +48,7 @@ Paths and limits for bundle storage and persistent state.
 | `bundle_dir` | string | `"/var/lib/hoike/bundles"` | Directory where ahu bundles are stored. The signer writes here; the edge reads from here. Must be readable (edge) or read-write (signer/combined). |
 | `state_db` | string | `"/var/lib/hoike/state"` | Path to the persistent state database. Stores epoch high-water marks for anti-rollback protection. **This path must survive restarts** — losing it resets rollback protection. See [Anti-Rollback Protection](anti-rollback.md). |
 | `max_chain` | integer | `24` | Maximum number of delta bundles in a chain before the edge demands a full bundle. Lower values increase bandwidth (more full bundles); higher values save bandwidth but increase recovery time after a missed delta. |
+| `seal_trust_anchors` | array of strings | — | Paths to DER/PEM certificates trusted as bundle seal signers. When set, bundles without a valid CMS seal are rejected on load. Omit for backward compatibility (seal verification skipped with a warning). |
 
 ```toml
 [storage]
@@ -105,15 +106,39 @@ Each `[[ca]]` section configures one CA whose certificates this responder handle
 | `label` | string | **required** | Human-readable label for this CA. Used in logs, metrics, and bundle filenames. Must be unique across all `[[ca]]` sections. |
 | `source` | inline table | **required** | Revocation data source. See [Source types](#source-types) below. |
 
-### Signing
+### Signing key
+
+The `[ca.signing_key]` table configures how OCSP responses are signed. Required for `signer` and `combined` modes. Three types:
+
+**File-based (PKCS#8):**
+```toml
+[ca.signing_key]
+type = "file"
+path = "/etc/hoike/ocsp-signing.key"  # PKCS#8 PEM or DER
+```
+
+**PKCS#11 HSM** (requires `--features pkcs11`):
+```toml
+[ca.signing_key]
+type        = "pkcs11"
+module      = "/usr/lib/libCryptoki2_64.so"   # Vendor PKCS#11 library
+token_label = "hoike-partition"                # Token/partition name
+key_label   = "ocsp-signing"                   # CKA_LABEL of the signing key
+pin_env     = "HOIKE_HSM_PIN"                  # Read PIN from env var
+# Or omit pin/pin_env — hoike prompts interactively at startup
+```
+
+**Demo key** (testing only):
+```toml
+[ca.signing_key]
+type = "demo"
+```
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `signing` | string | `"ca-direct"` | Signing mode. `"ca-direct"` signs with the CA's own key. `"delegated"` uses a separate OCSP responder certificate and key (requires `responder_cert` and `responder_key`). |
-| `sig_alg` | string | `"ecdsa-p256"` | Signature algorithm. Supported values: `"ecdsa-p256"`, `"ecdsa-p384"`, `"ed25519"`, `"rsa-sha256"`, `"ml-dsa-44"`, `"ml-dsa-65"`, `"ml-dsa-87"`. |
-| `responder_cert` | string | — | Path to the OCSP responder certificate. Required when `signing = "delegated"`. |
-| `responder_key` | string | — | Path to the OCSP responder private key. Required when `signing = "delegated"`. |
-| `responder_id` | string | `"by-key"` | ResponderID format in OCSP responses: `"by-key"` (SubjectPublicKeyInfo hash) or `"by-name"` (Distinguished Name). `"by-key"` is recommended — it survives certificate renewal. |
+| `responder_cert` | string | — | Path to the OCSP signing certificate (DER or PEM). Embedded in each `BasicOCSPResponse.certs` per RFC 9919 §3.2.2. When set, `ResponderID` uses the cert's SPKI key hash. |
+| `seal_key` | string | — | Path to PKCS#8 key for CMS bundle seal signing. Should differ from the OCSP signing key. |
+| `seal_cert` | string | — | Path to the seal signer's certificate. |
 
 ### CertID and compatibility
 
@@ -160,33 +185,69 @@ source = { type = "crl", path = "/var/lib/hoike/crls/enterprise.crl" }
 | `type` | string | Must be `"crl"`. |
 | `path` | string | Path to the CRL file. hoike watches this path for changes and reloads automatically. |
 
-**Dogtag source** (planned):
+**Dogtag syncrepl source** (requires `--features dogtag-sync`):
 
 ```toml
-source = { type = "dogtag", url = "https://ca01.pki.example:8443", auth = "mtls", cert = "/etc/hoike/ra.pem" }
+[ca.source]
+type         = "dogtag-sync"
+ldap_url     = "ldap://ds-iot.cert-lab.local:3389"
+base_dn      = "ou=certificateRepository,ou=ca,o=pki-iot-ca-CA"
+bind_dn      = "cn=Directory Manager"
+bind_password_env = "HOIKE_LDAP_PASSWORD"
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `type` | string | Must be `"dogtag"`. |
-| `url` | string | Dogtag CA REST API endpoint. |
-| `auth` | string | Authentication method: `"mtls"`. |
-| `cert` | string | Path to the client certificate for mTLS authentication. |
+| `type` | string | Must be `"dogtag-sync"`. |
+| `ldap_url` | string | LDAP URL for the Dogtag 389 DS instance. |
+| `base_dn` | string | Search base for the certificate repository. |
+| `bind_dn` | string | Bind DN (default: `cn=Directory Manager`). |
+| `bind_password` | string | Bind password (prefer `bind_password_env`). |
+| `bind_password_env` | string | Env var containing the bind password. |
+| `cookie_path` | string | Path for the sync cookie checkpoint file. |
+
+This source uses RFC 4533 Content Synchronization (syncrepl) for incremental updates. It enumerates all issued certificates, enabling `authoritative-complete` bundles — a serial not in the repository is confirmed never-issued.
+
+### Key rotation
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `key_rotation.renew_before_days` | integer | `7` | Days before cert expiry to trigger rotation warning. |
+| `key_rotation.check_interval_hours` | integer | `1` | Hours between rotation checks. |
+| `key_rotation.rotation_command` | string | — | Shell command to execute when rotation is needed. Receives the CA label and cert path as arguments. |
+
+```toml
+[ca.key_rotation]
+renew_before_days    = 7
+check_interval_hours = 1
+rotation_command     = "/usr/local/bin/renew-ocsp-cert.sh"
+```
+
+### Full example (signer with HSM)
 
 ```toml
 [[ca]]
 label          = "enterprise-issuing-01"
-source         = { type = "crl", path = "/var/lib/hoike/crls/enterprise.crl" }
-signing        = "ca-direct"
-sig_alg        = "ecdsa-p256"
-responder_id   = "by-key"
-certid_compat  = "dual"
-nonce_policy   = "ignore"
-validity       = "24h"
-batch_interval = "1h"
-jitter         = "2h"
-archive_cutoff = "1y"
+nonce_policy   = "live"
 completeness   = "authoritative-complete"
+responder_cert = "/etc/hoike/ocsp-signing.pem"
+
+[ca.source]
+type         = "dogtag-sync"
+ldap_url     = "ldap://ds.pki.example:3389"
+base_dn      = "ou=certificateRepository,ou=ca,o=pki-ca-CA"
+bind_password_env = "HOIKE_LDAP_PASSWORD"
+
+[ca.signing_key]
+type        = "pkcs11"
+module      = "/usr/lib/libCryptoki2_64.so"
+token_label = "hoike-partition"
+key_label   = "ocsp-signing"
+pin_env     = "HOIKE_HSM_PIN"
+
+[ca.key_rotation]
+renew_before_days = 7
+rotation_command  = "/usr/local/bin/renew-ocsp-cert.sh"
 ```
 
 ---

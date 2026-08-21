@@ -39,19 +39,24 @@ source = { type = "crl", path = "/var/lib/hoike/crls/enterprise.crl" }
 
 The signer re-reads the CRL file on every batch cycle. An external process (e.g., `cron` + `curl`) is responsible for keeping the CRL file up to date.
 
-### Dogtag / 389 DS (planned)
+### Dogtag 389 DS syncrepl (requires `--features dogtag-sync`)
 
-Direct integration with Red Hat Certificate System (Dogtag) is planned. The intended configuration:
+RFC 4533 Content Synchronization against the Dogtag 389 DS certificate repository. This is the **positive issuance source** — it enumerates every issued certificate, enabling `authoritative-complete` bundles where a miss is confirmed "never issued."
 
 ```toml
 [[ca]]
 label  = "dogtag-ca-01"
-source = { type = "dogtag", url = "https://ca01.pki.example:8443", auth = "mtls", cert = "/etc/hoike/ra.pem" }
+completeness = "authoritative-complete"
+
+[ca.source]
+type             = "dogtag-sync"
+ldap_url         = "ldap://ds-iot.cert-lab.local:3389"
+base_dn          = "ou=certificateRepository,ou=ca,o=pki-iot-ca-CA"
+bind_dn          = "cn=Directory Manager"
+bind_password_env = "HOIKE_LDAP_PASSWORD"
 ```
 
-This will query the Dogtag REST API for revocation state using mutual TLS authentication, eliminating the CRL export step.
-
-> **Note:** Until Dogtag support ships, use the CRL adapter and export CRLs from Dogtag on a schedule.
+The adapter performs an initial full refresh, then uses the sync cookie for incremental updates. Certificate statuses are mapped: `VALID`→Good, `REVOKED`→Revoked (with reason/time), `REVOKED_EXPIRED`→Revoked, `EXPIRED`/`INVALID`→skipped.
 
 ## Batch Production
 
@@ -90,32 +95,46 @@ The `jitter` parameter adds a random offset (up to the configured duration) to `
 
 ## Signing Configuration
 
-### Signing Mode
+### Signing Keys
 
-| Mode         | Key used                  | When to use                                              |
-|--------------|---------------------------|----------------------------------------------------------|
-| `ca-direct`  | CA's own private key      | CA key is available to the signer (simpler, common)      |
-| `delegated`  | Separate responder key    | Dedicated OCSP signing key with `id-kp-OCSPSigning` EKU |
+hoike supports three key sources. The `[ca.signing_key]` table is required for signer/combined mode.
 
-**CA-direct signing:**
-
+**PKCS#8 file:**
 ```toml
-[[ca]]
-label   = "root-ca"
-signing = "ca-direct"
+[ca.signing_key]
+type = "file"
+path = "/etc/hoike/ocsp-signing.key"
 ```
 
-**Delegated signing:**
+**PKCS#11 HSM** (requires `--features pkcs11`):
+```toml
+[ca.signing_key]
+type        = "pkcs11"
+module      = "/usr/lib/libCryptoki2_64.so"    # Thales Luna
+token_label = "hoike-partition"
+key_label   = "ocsp-signing"
+pin_env     = "HOIKE_HSM_PIN"
+```
+
+Omit `pin` and `pin_env` to prompt interactively at startup (recommended for production). Documented HSM module paths: Thales Luna, Entrust nShield, Utimaco CryptoServer, FutureX Vectera, Kryoptic (testing).
+
+**Demo key** (testing only — produces a warning):
+```toml
+[ca.signing_key]
+type = "demo"
+```
+
+### Delegated Signing
+
+When a delegated OCSP signing certificate is configured, it is embedded in every `BasicOCSPResponse.certs` per RFC 9919 §3.2.2. The `ResponderID` is computed from the certificate's SPKI key hash (not the CA's key).
 
 ```toml
 [[ca]]
 label          = "enterprise-issuing-01"
-signing        = "delegated"
 responder_cert = "/etc/hoike/ocsp-responder.pem"
-responder_key  = "/etc/hoike/ocsp-responder.key"
 ```
 
-When using `delegated`, the responder certificate must contain the `id-kp-OCSPSigning` extended key usage and be issued by the CA it signs on behalf of.
+The responder certificate must have `id-kp-OCSPSigning` EKU and be issued by the CA.
 
 ### Signature Algorithms
 

@@ -1,7 +1,7 @@
 # Testing
 
-hoike has 81 tests across 6 crates covering unit, integration, conformance,
-and algorithm-specific behavior.
+hoike has 103 tests across 6 crates covering unit, integration, end-to-end,
+conformance, seal verification, ML-DSA, key rotation, and live nonce signing.
 
 ## Running all tests
 

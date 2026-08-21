@@ -136,6 +136,17 @@ validated. For deployments requiring FIPS 140-3 validated cryptography,
 use an HSM with ML-DSA support via PKCS#11. hoike's signer supports
 PKCS#11 backends for key operations.
 
+## End-to-end PQC testing
+
+The [cert-revocation-lab](https://github.com/czinda/cert-revocation-lab) includes
+an ML-DSA-87 PKI hierarchy (Dogtag PKI + Kryoptic PKCS#11 HSM) with a hoike
+deployment that signs OCSP responses with ML-DSA-87. This demonstrates the full
+PQC chain: Dogtag issues ML-DSA certs → hoike signs ML-DSA OCSP responses →
+NSS-based clients (Firefox, certmonger) validate them.
+
+CIQ achieved CAVP certification for ML-DSA in NSS 3.112 (February 2026), with
+FIPS 140-3 validation targeted for Q2 2027.
+
 ## Algorithm selection guidance
 
 | Scenario | Recommended | Rationale |

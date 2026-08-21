@@ -544,15 +544,16 @@
         </div>
         <div class="feature-card">
           <h3>ahu Bundle Format</h3>
-          <p>Self-describing containers with CBOR manifest, CMS seal, and a sorted
-             index for O(log n) binary search. Designed for zero-copy serving
-             via <code>mmap</code>.</p>
+          <p>Self-describing containers with CBOR manifest, CMS <code>SignedData</code>
+             seal, and a sorted index for O(log n) binary search. Seal verified
+             on load against configured trust anchors.</p>
         </div>
         <div class="feature-card">
-          <h3>SWIM Gossip</h3>
-          <p>Edge fleet coordination via the SWIM protocol (foca). Generation
-             announcements, membership tracking, and urgent revocation notices &mdash;
-             gossip is never authoritative for status.</p>
+          <h3>HSM Signing (PKCS#11)</h3>
+          <p>OCSP responses signed via hardware security modules through
+             <code>cryptoki</code>. Tested with Kryoptic; documented paths for
+             Thales Luna, Entrust nShield, Utimaco, and FutureX. Interactive PIN
+             prompt for production.</p>
         </div>
         <div class="feature-card">
           <h3>Air-Gap Ready</h3>
@@ -567,22 +568,23 @@
              Stale-generation alerts before <code>nextUpdate</code> expires.</p>
         </div>
         <div class="feature-card">
-          <h3>Zero-Copy Serving</h3>
-          <p>Responses are <code>mmap</code>'d and written directly via
-             <code>writev</code>. No parse, no copy, no re-encode on the hot path.
-             Horizontal scaling limited only by network bandwidth.</p>
+          <h3>SWIM Gossip</h3>
+          <p>Edge fleet coordination via the SWIM protocol (foca). Generation
+             announcements, membership tracking, and urgent revocation notices.
+             Gossip is never authoritative for status.</p>
         </div>
         <div class="feature-card">
-          <h3>Delta Bundles</h3>
-          <p>Incremental updates distribute only changes since the last full
-             generation. Steady-state mirrors receive deltas; full bundles
-             only on join or chain-length exhaustion.</p>
+          <h3>Key Rotation</h3>
+          <p>Monitors OCSP signing certificate expiry. Warns before deadline,
+             executes a configurable <code>rotation_command</code> for CA-specific
+             renewal. Delegated certs embedded per RFC 9919 &sect;3.2.2.</p>
         </div>
         <div class="feature-card">
           <h3>Nonce Policies</h3>
-          <p>Per-CA nonce handling: <code>ignore</code> for pre-signed responses,
-             <code>forward</code> to proxy to a signer. Configuring live signing
-             on an edge is a startup error, not a runtime surprise.</p>
+          <p>Per-CA nonce handling: <code>ignore</code> for pre-signed,
+             <code>forward</code> to proxy upstream, <code>live</code> for
+             on-demand signing with the client's nonce on signer nodes.
+             Configuring <code>live</code> on an edge is a startup error.</p>
         </div>
         <div class="feature-card">
           <h3>Dual CertID</h3>
@@ -610,7 +612,7 @@
           <span class="terminal-dot"></span>
           <span class="terminal-title">terminal</span>
         </div>
-        <div class="terminal-body"><code><span class="prompt">$</span> <span class="cmd">hoike sign</span> <span class="flag">--ca enterprise-ca --crl revoked.crl -o bundle.ahu</span>
+        <div class="terminal-body"><code><span class="prompt">$</span> <span class="cmd">hoike sign</span> <span class="flag">--ca enterprise-ca --crl revoked.crl --demo-key -o bundle.ahu</span>
 
 <span class="info"> INFO</span> <span class="log">hoike::sign: reading CRL from 'revoked.crl' (42 entries)</span>
 <span class="info"> INFO</span> <span class="log">hoike::sign: signing with ecdsa-p256, epoch 1</span>
@@ -671,14 +673,14 @@
       <div class="quickstart-grid">
         <div class="quickstart-card">
           <p class="qs-label">Container</p>
-          <code><span class="comment"># Build the container image</span>
-<span class="cmd">podman build</span> <span class="flag">-t hoike .</span>
+          <code><span class="comment"># Pull pre-built image (x86_64 + arm64)</span>
+<span class="cmd">podman pull</span> <span class="flag">quay.io/czinda/hoike:v0.1.0</span>
 
 <span class="cmd">podman run</span> --rm \
   -v ./hoike.toml:/etc/hoike/hoike.toml:ro \
   -v ./bundles:/var/lib/hoike/bundles:ro \
   -p <span class="flag">2560</span>:2560 \
-  hoike</code>
+  quay.io/czinda/hoike:v0.1.0</code>
         </div>
         <div class="quickstart-card">
           <p class="qs-label">Build from source</p>
@@ -736,19 +738,19 @@
       <div class="features" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
         <div class="feature-card">
           <h3>ahu</h3>
-          <p>Bundle format: read, write, verify. Apache-2.0 OR MIT. No server dependencies.</p>
+          <p>Bundle format: read, write, verify, CMS seal verification. Apache-2.0 OR MIT. No server dependencies.</p>
         </div>
         <div class="feature-card">
           <h3>hoike-core</h3>
-          <p>CertID routing, request parsing, config, policy, state store.</p>
+          <p>CertID routing, request parsing, config, anti-rollback state store, seal verification on load.</p>
         </div>
         <div class="feature-card">
           <h3>hoike-sign</h3>
-          <p>Signing, CRL adapter, OCSP response generation, batch production.</p>
+          <p>CRL + syncrepl adapters, OCSP response &amp; CMS seal creation, PKCS#11, ML-DSA bridge, live nonce signing, key rotation.</p>
         </div>
         <div class="feature-card">
           <h3>hoike-server</h3>
-          <p>HTTP request path via axum. GET and POST handlers, RFC 9919 headers.</p>
+          <p>HTTP handlers via axum. Nonce policy dispatch, live signing, forward proxy, expired-bundle enforcement.</p>
         </div>
         <div class="feature-card">
           <h3>hoike-gossip</h3>

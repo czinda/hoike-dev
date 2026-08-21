@@ -103,14 +103,17 @@ hoike sign --ca <LABEL> --crl <FILE> [OPTIONS]
 |------|----------|---------|-------------|
 | `--ca <LABEL>` | Yes | -- | CA scope label for the bundle |
 | `--crl <FILE>` | Yes | -- | Path to the CRL file (PEM or DER) |
-| `--issuer-cert <FILE>` | Yes | -- | CA certificate (issuer) |
-| `--signer-cert <FILE>` | Yes | -- | OCSP signing certificate |
-| `--signer-key <FILE>` | Yes | -- | OCSP signing private key |
-| `--output <FILE>` | No | `<label>.ahu` | Output bundle file path |
+| `--signing-key <FILE>` | * | -- | PKCS#8 PEM/DER signing key. Mutually exclusive with `--demo-key`. |
+| `--demo-key` | * | false | Use an ephemeral key (testing only). Mutually exclusive with `--signing-key`. |
+| `-o <FILE>` | No | `output.ahu` | Output bundle file path |
 | `--sig-alg <ALG>` | No | `ecdsa-p256` | Signature algorithm (see below) |
 | `--certid-compat <MODE>` | No | `dual` | CertID hash compatibility mode (see below) |
-| `--epoch <N>` | No | auto | Epoch number for anti-rollback |
+| `--epoch <N>` | No | `1` | Epoch number for anti-rollback |
 | `--good-serials <FILE>` | No | -- | File of hex serial numbers to mark as good |
+| `--issuer-name-b64 <B64>` | No | -- | Base64-encoded DER issuer name for correct CertID hashes |
+| `--issuer-key-b64 <B64>` | No | -- | Base64-encoded issuer public key bytes |
+
+\* One of `--signing-key` or `--demo-key` is required. hoike refuses to sign without an explicit key source.
 
 ### Signature algorithms (`--sig-alg`)
 
@@ -156,17 +159,23 @@ auto-increments from the previous bundle's epoch.
 ### Example
 
 ```sh
+# Production (with PKCS#8 key file)
 hoike sign \
   --ca enterprise-issuing-01 \
-  --issuer-cert /etc/pki/ca.crt \
-  --signer-cert /etc/pki/ocsp-signer.crt \
-  --signer-key /etc/pki/ocsp-signer.key \
   --crl /var/lib/pki/ca.crl \
+  --signing-key /etc/pki/ocsp-signer.key \
   --good-serials /var/lib/pki/good-serials.txt \
   --sig-alg ecdsa-p256 \
   --certid-compat dual \
   --epoch 42 \
-  --output /var/lib/hoike/bundles/enterprise.ahu
+  -o /var/lib/hoike/bundles/enterprise.ahu
+
+# Testing (with demo key)
+hoike sign \
+  --ca test-ca \
+  --crl test.crl \
+  --demo-key \
+  -o test.ahu
 ```
 
 ---

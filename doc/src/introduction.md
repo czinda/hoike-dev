@@ -28,10 +28,12 @@ signing and serving into a single process, which means every node that
 handles client requests must hold the OCSP signing key. hoike separates
 these concerns:
 
-**Signer** -- holds the OCSP signing keys, reads CRLs (or serial lists),
-and batch-produces pre-signed OCSP responses packaged into **ahu bundles**.
-The signer can run in a hardened enclave, an HSM-attached host, or an
-air-gapped machine. It never handles client traffic.
+**Signer** -- holds the OCSP signing keys (PKCS#11 HSM or PKCS#8 file),
+reads revocation data from CRLs or Dogtag's 389 DS via RFC 4533 syncrepl,
+and batch-produces pre-signed OCSP responses packaged into CMS-sealed
+**ahu bundles**. Signers also handle nonce-bearing requests by signing
+fresh responses on demand (`nonce_policy = "live"`). The signer can run in
+a hardened enclave, an HSM-attached host, or an air-gapped machine.
 
 **Edge** -- receives ahu bundles (via gossip, push, or manual import) and
 serves the pre-signed responses to OCSP clients. Edge nodes are stateless
@@ -64,10 +66,10 @@ hoike is organized as a Rust workspace with six crates:
 
 | Crate | Description | License |
 |-------|-------------|---------|
-| `ahu` | Bundle format library -- read, write, verify ahu containers | Apache-2.0 / MIT |
-| `hoike-core` | Shared types, configuration, and protocol logic | GPL-3.0-or-later |
-| `hoike-sign` | Signing engine -- CRL parsing, response production, bundle sealing | GPL-3.0-or-later |
-| `hoike-server` | axum-based OCSP responder and HTTP serving | GPL-3.0-or-later |
+| `ahu` | Bundle format: read, write, verify, CMS seal verification | Apache-2.0 / MIT |
+| `hoike-core` | CertID routing, config, anti-rollback state store, seal verification on load | GPL-3.0-or-later |
+| `hoike-sign` | CRL + syncrepl adapters, OCSP response + CMS seal creation, PKCS#11, ML-DSA bridge, live nonce signing, key rotation | GPL-3.0-or-later |
+| `hoike-server` | axum HTTP handlers, nonce policy dispatch, live signing, forward proxy | GPL-3.0-or-later |
 | `hoike-gossip` | SWIM protocol (via foca) for edge fleet coordination | GPL-3.0-or-later |
 | `hoike-cli` | CLI entry points for `hoike` and `ahu` binaries | GPL-3.0-or-later |
 
@@ -89,7 +91,8 @@ hoike implements or targets these RFCs:
 
 - **Language**: Rust 1.85+
 - **HTTP server**: axum 0.8 on tokio
-- **Cryptography**: RustCrypto (`der`, `x509-cert`, `x509-ocsp`)
+- **Cryptography**: RustCrypto (`der`, `x509-cert`, `x509-ocsp`, `cms`)
+- **HSM**: PKCS#11 via `cryptoki` (Luna, Entrust, Utimaco, FutureX, Kryoptic)
 - **Post-quantum**: ML-DSA-44/65/87 via `ml-dsa`
 - **Serialization**: ciborium (CBOR)
 - **Memory mapping**: memmap2

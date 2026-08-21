@@ -45,7 +45,7 @@ conformance checks.
 
 | Extension | OID | Implementation |
 |-----------|-----|----------------|
-| Nonce | 1.3.6.1.5.5.7.48.1.2 | Validated per RFC 9654, not echoed in pre-signed mode |
+| Nonce | 1.3.6.1.5.5.7.48.1.2 | Validated per RFC 9654. Pre-signed: omitted. `live` mode: echoed in response. `forward`: proxied upstream. |
 | `id-pkix-ocsp-nocheck` | 1.3.6.1.5.5.7.48.1.5 | Included in responder certificate profile |
 
 ## RFC 9919 -- Lightweight OCSP Profile
@@ -55,8 +55,8 @@ unless noted.
 
 | Requirement | Section | Implementation |
 |-------------|---------|----------------|
-| Pre-produced responses (no on-demand signing) | 4 | Core design -- all responses are batch-signed |
-| Single CertID per request | 4 | Multi-CertID requests rejected as `malformedRequest` |
+| Pre-produced responses | 4 | Core design -- batch-signed into ahu bundles. Signers also support on-demand `live` nonce signing. |
+| Single CertID per request | 4 | First CertID answered; remaining silently dropped per profile recommendation |
 | SHA-256 `CertID` hash algorithm | 4 | Default; SHA-1 accepted for compatibility |
 | `byKey` ResponderID (SHA-1 hash of responder public key) | 5 | Only form used |
 | `unauthorized` for unknown serials | 5 | Returned when serial not in working set |

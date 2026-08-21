@@ -85,27 +85,28 @@ Now use `hoike sign` to produce the bundle:
 ```sh
 hoike sign \
   --ca demo-ca \
-  --issuer-cert ca.crt \
-  --signer-cert ocsp.crt \
-  --signer-key ocsp.key \
   --crl ca.crl \
   --good-serials good-serials.txt \
+  --signing-key ocsp.key \
   --sig-alg ecdsa-p256 \
   --certid-compat dual \
   --epoch 1 \
-  --output demo-ca.ahu
+  -o demo-ca.ahu
 ```
 
 This reads the CRL for revocation data, marks the serials in
-`good-serials.txt` as good, signs each OCSP response with the OCSP signing
+`good-serials.txt` as good, signs each OCSP response with the signing
 key, and packages everything into `demo-ca.ahu`.
+
+> **Note:** `--signing-key` or `--demo-key` is required. hoike refuses to sign without an explicit key source.
 
 **Flag summary:**
 
 | Flag | Value | Meaning |
 |------|-------|---------|
 | `--ca` | `demo-ca` | Label for this CA scope in the bundle |
-| `--sig-alg` | `ecdsa-p256` | Signature algorithm for OCSP responses |
+| `--signing-key` | `ocsp.key` | PKCS#8 signing key file (or use `--demo-key` for testing) |
+| `--sig-alg` | `ecdsa-p256` | Signature algorithm (also: `ml-dsa-44`, `ml-dsa-65`, `ml-dsa-87`) |
 | `--certid-compat` | `dual` | Produce both SHA-256 and SHA-1 CertID entries |
 | `--epoch` | `1` | Monotonic epoch number for anti-rollback |
 
