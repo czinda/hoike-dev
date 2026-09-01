@@ -592,6 +592,30 @@
              <code>CertID</code> entries per RFC 9919. One signature, one payload,
              two index records. Log SHA-1 usage to track migration.</p>
         </div>
+        <div class="feature-card">
+          <h3>389 DS Syncrepl</h3>
+          <p>RFC 4533 Content Synchronization source for Dogtag certificate databases.
+             Persistent sync cookie across signer cycles. Provides positive issuance
+             data for <code>authoritative-complete</code> bundles.</p>
+        </div>
+        <div class="feature-card">
+          <h3>Dual-Algorithm Bundles</h3>
+          <p>One bundle carries both ECDSA and ML-DSA responses. Clients select via
+             RFC 6960 &sect;4.4.7.1 <code>PreferredSignatureAlgorithms</code>. No flag
+             day needed for PQC migration.</p>
+        </div>
+        <div class="feature-card">
+          <h3>Zero-Copy Serving</h3>
+          <p><code>MmapBundle</code> uses MAP_PRIVATE for large-scale edge serving.
+             At 100M entries (~45 GB): ~200 MB RSS, sub-100ms startup. Binary search
+             directly on the mmap'd index &mdash; no heap allocation per lookup.</p>
+        </div>
+        <div class="feature-card">
+          <h3>Admin API &amp; Web UI</h3>
+          <p>REST admin API with RBAC (Administrator / Operator / Viewer). React +
+             PatternFly 6 dashboard for bundle management, CA status, signing, and
+             OCSP query. Embeddable in the binary via <code>--features embed-webui</code>.</p>
+        </div>
       </div>
     </div>
   </section>
@@ -621,7 +645,7 @@
 <span class="prompt">$</span> <span class="cmd">ahu inspect</span> <span class="flag">bundle.ahu</span>
 
 <span class="log">format    : ahu v1</span>
-<span class="log">producer  : hoike 0.1.0</span>
+<span class="log">producer  : hoike 0.2.0</span>
 <span class="log">epoch     : 1</span>
 <span class="log">scope     : enterprise-ca (partial)</span>
 <span class="log">algorithm : ecdsa-p256</span>
@@ -632,7 +656,12 @@
 
 <span class="info"> INFO</span> <span class="log">hoike: loading config from 'hoike.toml'</span>
 <span class="info"> INFO</span> <span class="log">hoike::core: loaded CA 'enterprise-ca' (45 entries, epoch 1)</span>
-<span class="info"> INFO</span> <span class="log">hoike::server: OCSP responder listening on 0.0.0.0:2560</span></code></div>
+<span class="info"> INFO</span> <span class="log">hoike::server: OCSP responder listening on 0.0.0.0:2560</span>
+
+<span class="prompt">$</span> <span class="cmd">hoike query</span> <span class="flag">--url http://localhost:2560 --serial 0A1B2C \</span>
+    <span class="flag">--issuer-name-b64 ... --issuer-key-b64 ...</span>
+
+<span class="info"> INFO</span> <span class="log">hoike::query: status=good, sig=ecdsa-p256, nextUpdate=2026-09-01</span></code></div>
       </div>
       <a href="/doc/quickstart/first-bundle.html" class="terminal-link">Read the full quickstart guide &rarr;</a>
     </div>
@@ -643,8 +672,8 @@
   <!-- Stats Callout -->
   <section class="stats-callout">
     <div class="container">
-      <div class="stats-number">4</div>
-      <p class="stats-label">RFCs and standards implemented &mdash; 20 conformance assertions</p>
+      <div class="stats-number">6</div>
+      <p class="stats-label">RFCs and standards. 131 tests. 20 conformance assertions.</p>
       <p class="stats-desc">
         Full OCSP protocol with pre-signed response production, HTTP caching profile,
         nonce handling rules, and AIA discovery. Every protocol claim validated by
@@ -657,6 +686,8 @@
         <li><strong>RFC 5280</strong> AIA</li>
         <li><strong>FIPS 204</strong> ML-DSA</li>
         <li><strong>RFC 8949</strong> CBOR</li>
+        <li><strong>RFC 5652</strong> CMS</li>
+        <li><strong>RFC 4533</strong> Syncrepl</li>
       </ul>
       <a href="/doc/compliance/rfc-support.html" class="terminal-link" style="margin-top:1.5rem;">View RFC compliance details &rarr;</a>
     </div>
@@ -674,13 +705,13 @@
         <div class="quickstart-card">
           <p class="qs-label">Container</p>
           <code><span class="comment"># Pull pre-built image (x86_64 + arm64)</span>
-<span class="cmd">podman pull</span> <span class="flag">quay.io/czinda/hoike:v0.1.0</span>
+<span class="cmd">podman pull</span> <span class="flag">ghcr.io/czinda/hoike:0.2.0</span>
 
 <span class="cmd">podman run</span> --rm \
   -v ./hoike.toml:/etc/hoike/hoike.toml:ro \
   -v ./bundles:/var/lib/hoike/bundles:ro \
   -p <span class="flag">2560</span>:2560 \
-  quay.io/czinda/hoike:v0.1.0</code>
+  ghcr.io/czinda/hoike:0.2.0</code>
         </div>
         <div class="quickstart-card">
           <p class="qs-label">Build from source</p>
@@ -706,7 +737,7 @@
         <p class="section-subtitle">A Cargo workspace with six crates. The signer holds keys; the edge serves bytes.</p>
       </div>
       <div class="arch-diagram">   <span class="dim">revocation source</span>            <span class="hl">SIGNER TIER</span>
-   <span class="dim">(CRL, Dogtag, 389 DS)</span>  ────▶  <span class="hl">batch signs</span>
+   <span class="dim">(CRL, 389 DS syncrepl)</span>  ────▶  <span class="hl">batch signs</span>
                                     <span class="hl">produces .ahu</span>
                                         │
                ┌────────────────────────┼────────────────────────┐
@@ -738,7 +769,7 @@
       <div class="features" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
         <div class="feature-card">
           <h3>ahu</h3>
-          <p>Bundle format: read, write, verify, CMS seal verification. Apache-2.0 OR MIT. No server dependencies.</p>
+          <p>Bundle format: read, write, verify, CMS seal, mmap zero-copy. Apache-2.0 OR MIT. No server dependencies.</p>
         </div>
         <div class="feature-card">
           <h3>hoike-core</h3>
@@ -750,7 +781,7 @@
         </div>
         <div class="feature-card">
           <h3>hoike-server</h3>
-          <p>HTTP handlers via axum. Nonce policy dispatch, live signing, forward proxy, expired-bundle enforcement.</p>
+          <p>HTTP handlers via axum. Nonce policy dispatch, live signing, forward proxy. Admin API with RBAC auth. React webui (PatternFly 6).</p>
         </div>
         <div class="feature-card">
           <h3>hoike-gossip</h3>

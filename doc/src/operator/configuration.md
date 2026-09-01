@@ -39,6 +39,71 @@ hoike validates mode-specific constraints at startup. For example, `nonce_policy
 
 ---
 
+## `[server.admin]`
+
+Admin API configuration. When present, hoike exposes a REST API at `/api/admin/` for monitoring and management.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `session_ttl_secs` | integer | `3600` | Session token lifetime in seconds. |
+
+### `[[server.admin.operators]]`
+
+Operator accounts for admin API authentication. Each operator has a name, bcrypt password hash, and role.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `name` | string | **required** | Operator username. |
+| `password_hash` | string | **required** | bcrypt hash of the operator's password. Generate with: `htpasswd -nbBC 12 "" 'password' \| cut -d: -f2` |
+| `role` | string | `"viewer"` | Operator role: `"administrator"`, `"operator"`, or `"viewer"`. |
+
+**Role hierarchy:**
+
+| Role | Permissions |
+|------|-------------|
+| `administrator` | Full access: config view, sign triggers, rotation commands, bundle reload |
+| `operator` | Operational actions: reload bundles, trigger sign, query |
+| `viewer` | Read-only: dashboard, bundles, CAs, gossip, config view |
+
+```toml
+[server.admin]
+session_ttl_secs = 3600
+
+[[server.admin.operators]]
+name          = "admin"
+password_hash = "$2b$12$..."
+role          = "administrator"
+
+[[server.admin.operators]]
+name          = "monitor"
+password_hash = "$2b$12$..."
+role          = "viewer"
+```
+
+---
+
+## `[server.webui]`
+
+Web UI configuration. When present, hoike serves a React + PatternFly 6 dashboard at `/ui/`.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `static_dir` | string | — | Path to the webui `dist/` directory. When set, files are served from disk (development mode). When omitted with the `embed-webui` Cargo feature, the UI is embedded in the binary. |
+
+```toml
+[server.webui]
+static_dir = "/path/to/hoike/webui/dist"
+```
+
+For production, build with `--features embed-webui` to embed the UI in the binary (no `static_dir` needed):
+
+```sh
+cd webui && npm run build
+cargo build --release --features embed-webui
+```
+
+---
+
 ## `[storage]`
 
 Paths and limits for bundle storage and persistent state.
@@ -140,6 +205,12 @@ type = "demo"
 | `seal_key` | string | — | Path to PKCS#8 key for CMS bundle seal signing. Should differ from the OCSP signing key. |
 | `seal_cert` | string | — | Path to the seal signer's certificate. |
 
+### Signature algorithm
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `sig_alg` | string | `"ecdsa-p256"` | Signing algorithm: `"ecdsa-p256"`, `"ml-dsa-44"`, `"ml-dsa-65"`, or `"ml-dsa-87"`. |
+
 ### CertID and compatibility
 
 | Key | Type | Default | Description |
@@ -204,6 +275,7 @@ bind_password_env = "HOIKE_LDAP_PASSWORD"
 | `bind_dn` | string | Bind DN (default: `cn=Directory Manager`). |
 | `bind_password` | string | Bind password (prefer `bind_password_env`). |
 | `bind_password_env` | string | Env var containing the bind password. |
+| `filter` | string | LDAP search filter (default: `(objectClass=certificateRecord)`). |
 | `cookie_path` | string | Path for the sync cookie checkpoint file. |
 
 This source uses RFC 4533 Content Synchronization (syncrepl) for incremental updates. It enumerates all issued certificates, enabling `authoritative-complete` bundles — a serial not in the repository is confirmed never-issued.

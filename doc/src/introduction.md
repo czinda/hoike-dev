@@ -69,7 +69,7 @@ hoike is organized as a Rust workspace with six crates:
 | `ahu` | Bundle format: read, write, verify, CMS seal verification | Apache-2.0 / MIT |
 | `hoike-core` | CertID routing, config, anti-rollback state store, seal verification on load | GPL-3.0-or-later |
 | `hoike-sign` | CRL + syncrepl adapters, OCSP response + CMS seal creation, PKCS#11, ML-DSA bridge, live nonce signing, key rotation | GPL-3.0-or-later |
-| `hoike-server` | axum HTTP handlers, nonce policy dispatch, live signing, forward proxy | GPL-3.0-or-later |
+| `hoike-server` | axum HTTP handlers, nonce policy dispatch, live signing, forward proxy, admin API with RBAC, React webui | GPL-3.0-or-later |
 | `hoike-gossip` | SWIM protocol (via foca) for edge fleet coordination | GPL-3.0-or-later |
 | `hoike-cli` | CLI entry points for `hoike` and `ahu` binaries | GPL-3.0-or-later |
 
@@ -86,6 +86,9 @@ hoike implements or targets these RFCs:
 - **RFC 9654** -- OCSP Nonce Extension
 - **RFC 5280** -- Authority Information Access (AIA) for OCSP responder
   discovery
+- **RFC 5652** -- Cryptographic Message Syntax (CMS) for bundle seals
+- **RFC 4533** -- LDAP Content Synchronization (syncrepl) for Dogtag
+  certificate repository integration
 
 ## Technology stack
 

@@ -12,6 +12,8 @@ conformance checks.
 | [RFC 9919](https://www.rfc-editor.org/rfc/rfc9919) | Lightweight OCSP Profile for High Volume Environments | Primary operating profile: pre-production, unauthorized semantics, byKey ResponderID, SHA-256 CertID, HTTP caching | Fully implemented |
 | [RFC 9654](https://www.rfc-editor.org/rfc/rfc9654) | OCSP Nonce Extension | Nonce length validation, rejection rules | Fully implemented |
 | [RFC 5280](https://www.rfc-editor.org/rfc/rfc5280) | Internet X.509 PKI Certificate and CRL Profile | AIA `id-ad-ocsp`, responder certificate profile, `id-pkix-ocsp-nocheck` | Referenced for certificate validation |
+| [RFC 5652](https://www.rfc-editor.org/rfc/rfc5652) | Cryptographic Message Syntax (CMS) | CMS `SignedData` seal on ahu bundles (ECDSA P-256 and ML-DSA) | Fully implemented |
+| [RFC 4533](https://www.rfc-editor.org/rfc/rfc4533) | LDAP Content Synchronization Operation | 389 DS syncrepl source for Dogtag certificate repositories | Fully implemented |
 
 ## RFC 6960 -- OCSP base protocol
 
@@ -129,5 +131,6 @@ hoike intentionally does not implement:
 - **Signed OCSP requests:** The request signature field is parsed but never
   validated. RFC 9919 Section 4.1 explicitly states that signed requests
   are not required in the lightweight profile.
-- **OCSP response signing on demand:** All responses are pre-signed during
-  batch production. There is no code path for on-demand signing.
+- **OCSP response signing on demand (edge mode):** Edge nodes serve only
+  pre-signed responses. On-demand signing is available via `nonce_policy = "live"`
+  on signer/combined nodes — see [Nonce Policies](../operator/nonce-policies.md).

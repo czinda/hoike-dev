@@ -109,6 +109,10 @@ key, and packages everything into `demo-ca.ahu`.
 | `--sig-alg` | `ecdsa-p256` | Signature algorithm (also: `ml-dsa-44`, `ml-dsa-65`, `ml-dsa-87`) |
 | `--certid-compat` | `dual` | Produce both SHA-256 and SHA-1 CertID entries |
 | `--epoch` | `1` | Monotonic epoch number for anti-rollback |
+| `--issuer` | `ca.crt` | Issuer certificate (DER) for automatic CertID computation |
+| `--seal-key` | `seal.key` | PKCS#8 key for CMS bundle seal (separate from signing key) |
+| `--dual-alg` | `ml-dsa-87` | Produce a dual-algorithm bundle alongside `--sig-alg` |
+| `--pq-signing-key` | `pq.key` | PKCS#8 PQ signing key (required with `--dual-alg`) |
 
 ## 5. Inspect the bundle
 

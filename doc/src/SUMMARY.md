@@ -17,6 +17,10 @@
 - [Multi-CA Routing](./operator/multi-ca.md)
 - [Nonce Policies](./operator/nonce-policies.md)
 - [Gossip Configuration](./operator/gossip.md)
+- [Revocation Sources](./operator/revocation-sources.md)
+- [Key Rotation](./operator/key-rotation.md)
+- [Admin API](./operator/admin-api.md)
+- [Web UI](./operator/webui.md)
 - [Air-Gap Deployments](./operator/air-gap.md)
 - [Anti-Rollback Protection](./operator/anti-rollback.md)
 
@@ -26,11 +30,13 @@
 - [ahu Bundle Format](./architecture/ahu-format.md)
 - [Request Path](./architecture/request-path.md)
 - [Response Production](./architecture/response-production.md)
+- [Dual-Algorithm Bundles](./architecture/dual-algorithm.md)
 
 # Compliance
 
 - [RFC Support Reference](./compliance/rfc-support.md)
 - [Post-Quantum Readiness](./compliance/pqc.md)
+- [CMS Seals](./compliance/cms-seals.md)
 
 # Reference
 

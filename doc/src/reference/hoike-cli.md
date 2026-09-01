@@ -1,7 +1,7 @@
 # hoike CLI Reference
 
 The `hoike` binary is the main entry point for the OCSP responder. It
-provides four subcommands: `serve`, `check`, `sign`, and `import`.
+provides five subcommands: `serve`, `check`, `sign`, `import`, and `query`.
 
 ## Global options
 
@@ -112,6 +112,10 @@ hoike sign --ca <LABEL> --crl <FILE> [OPTIONS]
 | `--good-serials <FILE>` | No | -- | File of hex serial numbers to mark as good |
 | `--issuer-name-b64 <B64>` | No | -- | Base64-encoded DER issuer name for correct CertID hashes |
 | `--issuer-key-b64 <B64>` | No | -- | Base64-encoded issuer public key bytes |
+| `--issuer <FILE>` | No | -- | Issuer certificate (DER) for automatic CertID computation |
+| `--seal-key <FILE>` | No | -- | PKCS#8 PEM/DER seal key file (separate from signing key) |
+| `--dual-alg <ALG>` | No | -- | Produce a dual-algorithm bundle alongside `--sig-alg` (e.g., `ml-dsa-87`) |
+| `--pq-signing-key <FILE>` | No | -- | PKCS#8 PEM/DER PQ signing key file (required with `--dual-alg`) |
 
 \* One of `--signing-key` or `--demo-key` is required. hoike refuses to sign without an explicit key source.
 
@@ -224,4 +228,55 @@ hoike import --bundle /mnt/usb/enterprise.ahu \
 # Force import (disaster recovery)
 hoike import --bundle /mnt/usb/enterprise.ahu \
   --config /etc/hoike/hoike.toml --force
+```
+
+---
+
+## hoike query
+
+Query a running OCSP responder with optional algorithm preference
+negotiation.
+
+```
+hoike query --url <URL> --serial <HEX> --issuer-name-b64 <B64> --issuer-key-b64 <B64> [OPTIONS]
+```
+
+### Options
+
+| Flag | Required | Default | Description |
+|------|----------|---------|-------------|
+| `--url <URL>` | Yes | -- | Responder URL (e.g., `http://localhost:2560`) |
+| `--serial <HEX>` | Yes | -- | Hex-encoded certificate serial number |
+| `--issuer-name-b64 <B64>` | Yes | -- | Base64-encoded DER issuer name |
+| `--issuer-key-b64 <B64>` | Yes | -- | Base64-encoded issuer public key bytes |
+| `--prefer <ALGS>` | No | -- | Comma-separated preferred algorithms (e.g., `ml-dsa-87,ecdsa-p256`) |
+
+### Description
+
+Builds an OCSP request for the given serial number and issuer, sends it
+to the specified responder, and displays the parsed response including
+status, signature algorithm, timestamps, and nonce handling.
+
+When `--prefer` is specified, the request includes an RFC 6960 §4.4.7.1
+`PreferredSignatureAlgorithms` extension. This is used to test
+dual-algorithm bundle negotiation — requesting `ml-dsa-87` from a
+responder serving a dual-algorithm bundle returns the ML-DSA response.
+
+### Example
+
+```sh
+# Basic query
+hoike query \
+  --url http://localhost:2560 \
+  --serial 0A1B2C \
+  --issuer-name-b64 "..." \
+  --issuer-key-b64 "..."
+
+# Query with post-quantum preference
+hoike query \
+  --url http://localhost:2560 \
+  --serial 0A1B2C \
+  --issuer-name-b64 "..." \
+  --issuer-key-b64 "..." \
+  --prefer ml-dsa-87
 ```

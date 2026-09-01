@@ -62,6 +62,29 @@ seeds    = []
 node_name = "combined-01"
 ```
 
+## Live Nonce Signing
+
+Combined mode supports `nonce_policy = "live"`, which signs fresh OCSP responses on demand with the client's nonce. Since the combined node holds signing keys, this works without forwarding:
+
+```toml
+[[ca]]
+label        = "internal-ca"
+nonce_policy = "live"
+```
+
+The signer looks up the certificate status from its loaded bundle, then builds a fresh response with that status and the client's nonce in `responseExtensions`.
+
+## Key Rotation
+
+Key rotation monitoring runs automatically in combined mode. Configure `[ca.key_rotation]` to receive warnings before the responder certificate expires and optionally run a renewal command:
+
+```toml
+[ca.key_rotation]
+renew_before_days    = 7
+check_interval_hours = 1
+rotation_command     = "/usr/local/bin/renew-ocsp-cert.sh"
+```
+
 ## Limitations
 
 | Concern | Impact |

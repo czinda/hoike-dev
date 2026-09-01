@@ -140,6 +140,36 @@ Build without gossip support:
 cargo build --release -p hoike-cli --no-default-features
 ```
 
+## Building the Web UI
+
+The admin web UI is a React + PatternFly 6 application in the `webui/` directory.
+
+**Development mode** (with hot reload):
+
+```sh
+cd webui
+npm install
+npm run dev       # Starts on http://localhost:9000
+```
+
+The Vite dev server proxies `/api/admin` requests to `http://localhost:2560` (the hoike server).
+
+**Production build** (for embedding or disk serving):
+
+```sh
+cd webui
+npm run build     # Produces webui/dist/
+```
+
+**Embedding in the binary:**
+
+```sh
+cd webui && npm run build
+cd .. && cargo build --release --features embed-webui
+```
+
+The `embed-webui` feature uses `include_dir` to bake `webui/dist/` into the binary. The embedded UI is served at `/ui/` automatically when `[server.webui]` is present in the config (without `static_dir`).
+
 ## Generating API documentation
 
 ```sh

@@ -89,8 +89,12 @@ entry:
 | `entry_key` | 32 bytes | SHA-256 of the DER-encoded CertID |
 | `data_offset` | 8 bytes | Byte offset into the data region (little-endian u64) |
 | `data_length` | 4 bytes | Length of the response in the data region (little-endian u32) |
+| `flags` | 2 bytes | Bit flags: `MULTI=0x01`, `ALIAS=0x02`, `TOMBSTONE=0x04` |
+| `discriminator` | 2 bytes | Algorithm variant: `0`=default (ECDSA), `2`=ML-DSA-44, `3`=ML-DSA-65, `4`=ML-DSA-87 |
 
-**Total record size: 44 bytes.**
+**Total record size: 48 bytes.**
+
+The `discriminator` field enables dual-algorithm bundles. A single bundle can contain both ECDSA and ML-DSA responses for the same certificate. The index is sorted by `(entry_key, discriminator)`, and `binary_search_preferred` resolves the best match for the client's algorithm preference list.
 
 The index is sorted by `entry_key` in lexicographic order, enabling
 **O(log n) binary search** on the memory-mapped file. For a bundle with

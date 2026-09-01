@@ -177,16 +177,65 @@ certid_compat = "dual"
 
 ## PKCS#11 / HSM Support
 
-> **Status:** Planned, not yet implemented.
-
-PKCS#11 integration will allow the signer to use hardware security modules (HSMs) for key storage and signing operations. When available, the signing key path will be replaced with a PKCS#11 URI:
+PKCS#11 integration allows the signer to use hardware security modules (HSMs) for key storage and signing operations, including ML-DSA via `CKM_ML_DSA`. Configure the signing key as a PKCS#11 reference:
 
 ```toml
-# Future syntax (not yet supported)
-responder_key = "pkcs11:token=hoike;object=ocsp-signer;type=private"
+[ca.signing_key]
+type        = "pkcs11"
+module      = "/usr/lib/libCryptoki2_64.so"    # Thales Luna
+token_label = "hoike-partition"
+key_label   = "ocsp-signing"
+pin_env     = "HOIKE_HSM_PIN"
 ```
 
-Until then, the signer reads key material from PEM files on disk. Protect these files with filesystem permissions and, where possible, full-disk encryption.
+Omit `pin` and `pin_env` to prompt interactively at startup (recommended for production). Tested with Kryoptic; documented paths for Thales Luna, Entrust nShield, Utimaco CryptoServer, and FutureX Vectera.
+
+Build with HSM support:
+
+```sh
+cargo build --release --features pkcs11
+```
+
+## Dual-Algorithm Bundles
+
+hoike can produce bundles containing both ECDSA and ML-DSA responses for the same certificates. Clients negotiate the preferred algorithm via RFC 6960 §4.4.7.1 `PreferredSignatureAlgorithms`.
+
+```sh
+hoike sign \
+  --ca enterprise-ca \
+  --crl ca.crl \
+  --signing-key ecdsa.key \
+  --sig-alg ecdsa-p256 \
+  --dual-alg ml-dsa-87 \
+  --pq-signing-key ml-dsa.key \
+  -o dual.ahu
+```
+
+One bundle, both algorithms, no flag day. A client that prefers `ml-dsa-87` gets the ML-DSA response; all others get ECDSA.
+
+## Key Rotation
+
+hoike monitors OCSP signing certificate expiry and can execute a renewal command automatically.
+
+```toml
+[ca.key_rotation]
+renew_before_days    = 7
+check_interval_hours = 1
+rotation_command     = "/usr/local/bin/renew-ocsp-cert.sh"
+```
+
+The signer checks the responder certificate at each batch interval. When the certificate is within `renew_before_days` of expiry, hoike logs a warning and runs `rotation_command`. When the certificate has expired, hoike logs an error — responses signed with an expired certificate will be rejected by clients.
+
+## CMS Seal
+
+Each ahu bundle is sealed with a CMS `SignedData` signature (RFC 5652) that binds the manifest, index, and data regions. The seal key must be distinct from the OCSP signing key.
+
+```toml
+seal_key  = "/etc/hoike/seal-key.p8"
+seal_cert = "/etc/hoike/seal-cert.pem"
+```
+
+Seal keys can be ECDSA P-256 or any ML-DSA variant. When `seal_trust_anchors` is configured in `[storage]`, bundles without a valid seal are rejected on load.
 
 ## Urgent Revocation
 
