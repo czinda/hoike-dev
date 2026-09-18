@@ -16,7 +16,7 @@ into two roles:
 ```mermaid
 graph LR
     subgraph Signer["Signer (HSM / enclave)"]
-        CRL[CRL + serial list] --> Sign[Batch sign]
+        CRL[CRL / 389 DS syncrepl] --> Sign[Batch sign]
         Sign --> Bundle[ahu bundle]
     end
     subgraph Distribution
@@ -144,7 +144,7 @@ graph TD
 | `ahu` | Bundle format read/write/verify | Apache-2.0 OR MIT | der, ciborium, memmap2, zstd |
 | `hoike-core` | CertID routing, request parsing, config, state | GPL-3.0+ | ahu, x509-ocsp, der |
 | `hoike-sign` | Response production, CRL parsing, batch signing | GPL-3.0+ | ahu, hoike-core, ml-dsa |
-| `hoike-server` | axum HTTP handlers, RFC 9919 headers | GPL-3.0+ | hoike-core, axum, tokio |
+| `hoike-server` | axum HTTP handlers, RFC 9919 headers, admin API with RBAC, React webui | GPL-3.0+ | hoike-core, axum, tokio |
 | `hoike-gossip` | SWIM membership + generation announcements | GPL-3.0+ | foca |
 | `hoike-cli` | Binary entry points for `hoike` and `ahu` | GPL-3.0+ | all above |
 

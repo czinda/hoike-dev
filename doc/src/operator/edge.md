@@ -184,6 +184,22 @@ by the network layer.
 - **state_db**: Small — a few kilobytes per CA. The critical requirement is
   durability, not capacity.
 
+## Admin API and Web UI
+
+When `[server.admin]` is configured, edge nodes expose a REST API at `/api/admin/` and an optional web dashboard at `/ui/`. This provides real-time visibility into:
+
+- Bundle inventory (per-CA epoch, entry count, freshness)
+- Responder certificate status and expiry
+- Key rotation status
+- Anti-rollback state (epoch high-water marks)
+- Running configuration (sanitized)
+
+See [Configuration Reference](configuration.md#serveradmin) for setup.
+
+## MmapBundle: Zero-Copy Serving
+
+For large-scale deployments (millions of certificates), hoike uses `MmapBundle` — a zero-copy bundle reader backed by `MAP_PRIVATE` memory mapping. At 100 million entries (~45 GB with ECDSA), the process uses ~200 MB RSS instead of 45 GB heap, with sub-100ms startup time. Binary search runs directly on the mmap'd index region with zero allocation on the hot path.
+
 ## Operational Monitoring
 
 Key metrics to watch on edge nodes:

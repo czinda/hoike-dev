@@ -56,7 +56,7 @@ The manifest is a CBOR map containing structured metadata:
 
 | Field | CBOR type | Description |
 |-------|-----------|-------------|
-| `producer` | text string | Identifier of the signing software (e.g., `"hoike-sign/0.1.0"`) |
+| `producer` | text string | Identifier of the signing software (e.g., `"hoike-sign/0.2.0"`) |
 | `epoch` | unsigned int | Monotonically increasing generation number |
 | `scope` | text string | CA label identifying which issuer this bundle covers |
 | `algorithm` | text string | Signature algorithm used for OCSP responses (e.g., `"ecdsa-p256"`, `"ml-dsa-65"`) |
@@ -71,7 +71,7 @@ The manifest is a CBOR map containing structured metadata:
 
 The seal is a CMS (RFC 5652) `SignedData` structure that covers the
 concatenation of the manifest, index, and data regions. It binds the
-entire bundle content to the signer's identity.
+entire bundle content to the signer's identity. See [Seal Trust Policy](../operator/seal-trust.md) for full admission rules.
 
 For verification, the `ahu verify` command checks:
 
@@ -89,8 +89,12 @@ entry:
 | `entry_key` | 32 bytes | SHA-256 of the DER-encoded CertID |
 | `data_offset` | 8 bytes | Byte offset into the data region (little-endian u64) |
 | `data_length` | 4 bytes | Length of the response in the data region (little-endian u32) |
+| `flags` | 2 bytes | Bit flags: `MULTI=0x01`, `ALIAS=0x02`, `TOMBSTONE=0x04` |
+| `discriminator` | 2 bytes | Algorithm variant: `0`=default (ECDSA), `2`=ML-DSA-44, `3`=ML-DSA-65, `4`=ML-DSA-87 |
 
-**Total record size: 44 bytes.**
+**Total record size: 48 bytes.**
+
+The `discriminator` field enables dual-algorithm bundles. A single bundle can contain both ECDSA and ML-DSA responses for the same certificate. The index is sorted by `(entry_key, discriminator)`, and `binary_search_preferred` resolves the best match for the client's algorithm preference list.
 
 The index is sorted by `entry_key` in lexicographic order, enabling
 **O(log n) binary search** on the memory-mapped file. For a bundle with

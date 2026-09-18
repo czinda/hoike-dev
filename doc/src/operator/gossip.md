@@ -44,6 +44,7 @@ node_name    = "edge-01"
 | `bind` | string | `"0.0.0.0:7946"` | Address and port to bind the gossip listener. |
 | `seeds` | array of strings | `[]` | Initial contact points for joining the gossip mesh. |
 | `identity_key` | path | — | Path to the Ed25519 key used to sign gossip messages. |
+| `peer_identities` | table | `{}` | Map of node names to Ed25519 public key paths for broadcast verification. |
 | `node_name` | string | hostname | Human-readable, unique identifier for this node in the mesh. |
 
 ## Seed Configuration
@@ -76,7 +77,26 @@ hoike keygen --gossip -o /etc/hoike/gossip.key
 chmod 600 /etc/hoike/gossip.key
 ```
 
-The key file contains the Ed25519 private key. Protect it with appropriate file permissions. The corresponding public key is derived automatically and exchanged during the SWIM join handshake.
+The key file contains the Ed25519 private key. Protect it with appropriate file permissions.
+
+### Peer Identities
+
+The `peer_identities` table maps each peer's `node_name` to the path of its Ed25519 public key file:
+
+```toml
+[gossip.peer_identities]
+"edge-02"  = "/etc/hoike/gossip/edge-02.pub"
+"signer-1" = "/etc/hoike/gossip/signer-1.pub"
+```
+
+**Enforcement modes:**
+
+- **Enforcing mode** (non-empty `peer_identities`): Unsigned, forged, or misattributed generation announcements and urgent-revocation broadcasts are dropped before re-propagation.
+- **Permissive mode** (empty `peer_identities`): Unsigned broadcasts are accepted for backward compatibility with a mixed or unconfigured fleet.
+
+> **Note:** A non-empty legacy `peer_keys` array will now cause startup to fail with an error directing you to migrate to `peer_identities`.
+
+The corresponding public keys must be distributed to all nodes that will verify broadcasts from that peer.
 
 ## Node Name
 
@@ -100,7 +120,7 @@ Failed nodes stop receiving generation announcements and urgent revocation notic
 
 The security boundaries are:
 
-- **All gossip messages are signed** with the sender's `identity_key`. Unsigned or incorrectly signed messages are dropped.
+- **Generation announcements and urgent-revocation broadcasts are signed** with the sender's `identity_key`. In enforcing mode (non-empty `peer_identities`), unsigned or incorrectly signed broadcasts are dropped before re-propagation. SWIM liveness traffic (pings/acks) is not authenticated.
 - **Bundle validity is verified independently** via CMS seal and epoch chain — not via gossip trust. A gossip announcement only says "a new generation exists"; the edge independently verifies every bundle it loads.
 - **A compromised gossip node cannot inject bad responses.** The worst it can do is trigger unnecessary pull attempts. The pulled bundle must still pass CMS seal verification and anti-rollback checks.
 - **Gossip cannot suppress bundles.** Edges also poll on a schedule, so even if gossip is disrupted, bundles are eventually loaded.

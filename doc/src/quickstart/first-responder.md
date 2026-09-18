@@ -101,7 +101,25 @@ openssl ocsp \
 This should return a response with status **revoked**, including the
 revocation time from the CRL.
 
-## 5. Test with curl
+## 5. Test with hoike query
+
+hoike includes a built-in diagnostic client. Query the responder directly:
+
+```sh
+# Get the issuer hashes (you'll need these for the query)
+ISSUER_NAME_B64=$(openssl x509 -in /tmp/hoike-demo/ca.crt -outform DER | openssl dgst -sha256 -binary | base64)
+ISSUER_KEY_B64=$(openssl x509 -in /tmp/hoike-demo/ca.crt -noout -pubkey | openssl pkey -pubin -outform DER | tail -c +25 | base64)
+
+# Query status of ee1
+SERIAL=$(openssl x509 -in /tmp/hoike-demo/ee1.crt -noout -serial | cut -d= -f2)
+hoike query \
+  --url http://localhost:2560 \
+  --serial "$SERIAL" \
+  --issuer-name-b64 "$ISSUER_NAME_B64" \
+  --issuer-key-b64 "$ISSUER_KEY_B64"
+```
+
+## 6. Test with curl
 
 OCSP also supports HTTP GET with a base64-encoded request in the URL path.
 For a quick connectivity check:
@@ -132,6 +150,25 @@ signed during the `hoike sign` step. The edge node is keyless.
 # If running in the background:
 kill %1
 ```
+
+## Admin Web UI
+
+If the admin API is configured, you can monitor the responder via a browser. Add to your `hoike.toml`:
+
+```toml
+[server.admin]
+session_ttl_secs = 3600
+
+[[server.admin.operators]]
+name          = "admin"
+password_hash = "$2b$12$..."   # bcrypt hash of your password
+role          = "administrator"
+
+[server.webui]
+static_dir = "/path/to/hoike/webui/dist"
+```
+
+Then visit `http://localhost:2560/ui/` to access the dashboard showing bundle status, CA health, rotation status, and more.
 
 ## Next steps
 

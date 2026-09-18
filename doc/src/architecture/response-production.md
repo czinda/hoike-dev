@@ -168,6 +168,22 @@ have a signed response for this certificate. This occurs when:
 OCSPResponse.responseStatus: unauthorized (6)
 ```
 
+## Dual-algorithm bundle production
+
+hoike supports producing bundles that contain both ECDSA and ML-DSA responses for the same certificate set. This enables gradual PQC migration without a flag day.
+
+The `produce_dual_bundle` function takes two signers (classical + post-quantum) and produces a single bundle where each certificate has two index entries distinguished by the `discriminator` field. Clients negotiate their preferred algorithm via the RFC 6960 §4.4.7.1 `PreferredSignatureAlgorithms` extension.
+
+```sh
+hoike sign \
+  --ca my-ca --crl ca.crl \
+  --signing-key ecdsa.key --sig-alg ecdsa-p256 \
+  --dual-alg ml-dsa-87 --pq-signing-key ml-dsa.key \
+  -o dual.ahu
+```
+
+The CMS seal on a dual-algorithm bundle can use either ECDSA or ML-DSA, configured via `--seal-key`.
+
 ## ResponderID
 
 RFC 9919 Section 5 mandates `byKey` ResponderID, which identifies the

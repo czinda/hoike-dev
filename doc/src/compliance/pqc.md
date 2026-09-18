@@ -153,9 +153,58 @@ FIPS 140-3 validation targeted for Q2 2027.
 |----------|-------------|-----------|
 | Current production, no PQ requirement | ECDSA P-256 | Smallest responses, widest compatibility |
 | CNSA 2.0 compliance | ML-DSA-65 or ML-DSA-87 | NSA CNSA 2.0 requires NIST Level 3+ |
-| Hybrid transition | ECDSA P-256 + ML-DSA-65 (future) | Not yet supported; planned |
+| Hybrid transition | ECDSA P-256 + ML-DSA-65 (dual-algorithm) | Supported via `--dual-alg` — one bundle, both algorithms |
 | PQ-only, size-constrained | ML-DSA-44 with CA-direct | Smallest PQ option |
 | Maximum security | ML-DSA-87 with CA-direct + deltas | Full PQ security with size mitigation |
+
+## Dual-algorithm bundles
+
+hoike supports dual-algorithm bundles that contain both ECDSA and ML-DSA responses for the same certificate set. The client selects the preferred algorithm via the RFC 6960 §4.4.7.1 `PreferredSignatureAlgorithms` extension.
+
+```sh
+hoike sign \
+  --ca my-ca \
+  --crl ca.crl \
+  --signing-key ecdsa.key \
+  --sig-alg ecdsa-p256 \
+  --dual-alg ml-dsa-87 \
+  --pq-signing-key ml-dsa.key \
+  -o dual.ahu
+
+# Query with PQ preference
+hoike query --url http://localhost:2560 --serial 0A1B2C \
+  --issuer-name-b64 ... --issuer-key-b64 ... --prefer ml-dsa-87
+```
+
+The bundle index uses a discriminator field (bytes 46-47 of each 48-byte index record) to distinguish algorithm variants. Binary search with `binary_search_preferred` resolves the best match for the client's preference list.
+
+## PKCS#11 ML-DSA
+
+hoike supports ML-DSA signing via PKCS#11 HSMs using the `CKM_ML_DSA` mechanism (full-message, pure variant). The signer validates mechanism support at startup via `get_mechanism_list`.
+
+```toml
+[ca.signing_key]
+type        = "pkcs11"
+module      = "/usr/lib/libkryoptic_pkcs11.so"
+token_label = "hoike-ocsp"
+key_label   = "pq-signing"
+pin_env     = "HOIKE_HSM_PIN"
+```
+
+Build with: `cargo build --release --features pkcs11`
+
+## ML-DSA CMS seals
+
+Bundle seals support both ECDSA and ML-DSA seal keys. The seal key type is auto-detected from the PKCS#8 file:
+
+```sh
+hoike sign --ca my-ca --crl ca.crl \
+  --signing-key ecdsa.key \
+  --seal-key ml-dsa-seal.key \
+  -o sealed.ahu
+```
+
+Seal verification dispatches on the `SignerInfo` algorithm OID. ML-DSA signs raw attribute DER (full-message mode); ECDSA uses prehash.
 
 ## Test coverage
 
