@@ -21,6 +21,10 @@ docs:
 	cd doc && mdbook build
 
 api:
+	# Clear stale target/doc first: --no-deps skips *generating* dependency
+	# docs but leaves any pre-existing ones in place, and copying them all in
+	# blows past Cloudflare Pages' 20,000-file/deployment limit.
+	rm -rf $(HOIKE_REPO)/target/doc
 	cd $(HOIKE_REPO) && cargo doc --workspace --no-deps \
 		--config 'build.rustdocflags=["--extend-css", "../hoike-dev/api-theme.css", "--html-in-header", "../hoike-dev/api-header.html"]'
 	rm -rf api
