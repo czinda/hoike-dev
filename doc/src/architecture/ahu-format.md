@@ -56,7 +56,7 @@ The manifest is a CBOR map containing structured metadata:
 
 | Field | CBOR type | Description |
 |-------|-----------|-------------|
-| `producer` | text string | Identifier of the signing software (e.g., `"hoike-sign/0.1.0"`) |
+| `producer` | text string | Identifier of the signing software (e.g., `"hoike-sign/0.2.0"`) |
 | `epoch` | unsigned int | Monotonically increasing generation number |
 | `scope` | text string | CA label identifying which issuer this bundle covers |
 | `algorithm` | text string | Signature algorithm used for OCSP responses (e.g., `"ecdsa-p256"`, `"ml-dsa-65"`) |
@@ -71,7 +71,7 @@ The manifest is a CBOR map containing structured metadata:
 
 The seal is a CMS (RFC 5652) `SignedData` structure that covers the
 concatenation of the manifest, index, and data regions. It binds the
-entire bundle content to the signer's identity.
+entire bundle content to the signer's identity. See [Seal Trust Policy](../operator/seal-trust.md) for full admission rules.
 
 For verification, the `ahu verify` command checks:
 

@@ -1,7 +1,6 @@
 # Testing
 
-hoike has 131 tests across 6 crates covering unit, integration, end-to-end,
-conformance, seal verification, ML-DSA, key rotation, and live nonce signing.
+hoike has 200 tests on the default build (218 with the tls, metrics, and dogtag-sync features enabled) across 6 crates covering unit, integration, end-to-end, conformance, seal verification, ML-DSA, key rotation, and live nonce signing.
 
 ## Running all tests
 

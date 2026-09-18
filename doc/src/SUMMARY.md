@@ -16,13 +16,20 @@
 - [Combined Mode](./operator/combined.md)
 - [Multi-CA Routing](./operator/multi-ca.md)
 - [Nonce Policies](./operator/nonce-policies.md)
-- [Gossip Configuration](./operator/gossip.md)
 - [Revocation Sources](./operator/revocation-sources.md)
+- [Gossip Configuration](./operator/gossip.md)
+- [TLS and Mutual TLS](./operator/tls.md)
+- [Seal Trust Policy](./operator/seal-trust.md)
 - [Key Rotation](./operator/key-rotation.md)
-- [Admin API](./operator/admin-api.md)
 - [Web UI](./operator/webui.md)
 - [Air-Gap Deployments](./operator/air-gap.md)
 - [Anti-Rollback Protection](./operator/anti-rollback.md)
+
+# Security
+
+- [Hardening Guide](./security/hardening.md)
+- [Audit Logging](./security/audit-logging.md)
+- [Admin API and RBAC](./security/admin-api.md)
 
 # Architecture
 
@@ -37,6 +44,9 @@
 - [RFC Support Reference](./compliance/rfc-support.md)
 - [Post-Quantum Readiness](./compliance/pqc.md)
 - [CMS Seals](./compliance/cms-seals.md)
+- [FIPS 140-3 Status](./compliance/fips.md)
+- [NIAP Common Criteria Status](./compliance/niap.md)
+- [DISA STIG Guidance](./compliance/stig.md)
 
 # Reference
 

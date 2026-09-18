@@ -25,7 +25,7 @@ In signer mode, hoike does **not** serve OCSP responses to clients directly. Its
 
 ## Revocation Sources
 
-Each `[[ca]]` section declares a revocation source that the signer polls for certificate status.
+Each `[[ca]]` section declares a revocation source that the signer polls for certificate status. See [Revocation Sources](./revocation-sources.md) for the full reference.
 
 ### CRL (implemented)
 

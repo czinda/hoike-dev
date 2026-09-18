@@ -6,7 +6,9 @@ hoike is configured with a single TOML file, loaded once at startup. The default
 hoike serve --config /path/to/hoike.toml
 ```
 
-Every key can also be set via environment variable using the `HOIKE_` prefix, double-underscore section separators, and uppercase names. For example, `server.listen` becomes `HOIKE_SERVER__LISTEN`. Environment variables take precedence over the config file.
+Configuration is read from the file only — there is **no** environment-variable layering or `HOIKE_*` override mechanism. The only two values that may come from the environment are named *by* the config: the HSM PIN (`signing_key.pin_env`) and the directory bind password (`source.bind_password_env`). Each names an environment variable to read; no other key has an environment override.
+
+Every table below is parsed with `deny_unknown_fields`: an unrecognized or misspelled key is a **hard startup error**, not a silently ignored value. Run `hoike check --config <file>` to validate a file before deploying it.
 
 ---
 
@@ -16,91 +18,58 @@ Top-level server settings that control the process mode, listener, and request l
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `mode` | string | **required** | Operating mode: `"signer"`, `"edge"`, or `"combined"`. See [Signer](signer.md), [Edge](edge.md), and [Combined](combined.md) mode pages. |
-| `listen` | string | `"0.0.0.0:2560"` | Socket address for the HTTP listener. Port 2560 is the IANA-assigned port for OCSP over HTTP. |
-| `max_request` | integer | `8192` | Maximum OCSP request body size in bytes. RFC 6960 POST bodies are typically small; RFC 9919 GET requests encode the request in the URL path and are capped at 255 bytes by the URI length constraint. This limit protects against oversized or malformed requests. |
+| `mode` | string | `"edge"` | Operating mode: `"signer"`, `"edge"`, or `"combined"`. See [Signer](signer.md), [Edge](edge.md), and [Combined](combined.md) mode pages. |
+| `listen` | string | `"0.0.0.0:2560"` | Socket address for the plaintext OCSP HTTP listener. Port 2560 is the IANA-assigned port for OCSP over HTTP. The OCSP data plane is plaintext by design — every response is signed end to end. |
+| `max_request` | integer | `8192` | Maximum OCSP request body size in bytes. Protects against oversized or malformed requests. |
+| `admin_listen` | string | — | Dedicated listener for the admin API and web UI, e.g. `"127.0.0.1:2561"`. When unset the admin API rides `listen` for backward compatibility and `hoike check` warns. See [TLS and Mutual TLS](tls.md). |
+| `admin_tls` | table | — | `{ cert, key, client_ca }` for the admin listener. Requires a build with `--features tls` **and** `admin_listen` set; startup fails otherwise. `client_ca` enables mutual TLS. |
+| `metrics_listen` | string | — | Dedicated listener for Prometheus `/metrics`, e.g. `"127.0.0.1:9184"`. Requires `--features metrics` to expose data; otherwise returns 503. |
+| `metrics_tls` | table | — | `{ cert, key, client_ca }` for the metrics listener. Requires `--features tls` and `metrics_listen`. |
+| `admin` | table | — | Operator accounts and session settings; see [`[server.admin]`](#serveradmin). |
+| `webui` | table | — | `{ static_dir }` to serve the web UI from a directory instead of the embedded build (`--features embed-webui`). Omit to disable the UI. |
 
 ```toml
 [server]
-mode   = "edge"
-listen = "0.0.0.0:2560"
-max_request = 8192
+mode           = "edge"
+listen         = "0.0.0.0:2560"
+max_request    = 8192
+admin_listen   = "127.0.0.1:2561"
+metrics_listen = "127.0.0.1:9184"
+
+[server.admin_tls]
+cert      = "/etc/hoike/tls/admin.crt"
+key       = "/etc/hoike/tls/admin.key"
+client_ca = "/etc/hoike/tls/mgmt-ca.pem"
 ```
+
+### `[server.admin]`
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `session_ttl_secs` | integer | `3600` | Fixed lifetime of a login session, in seconds. There is no idle timeout. |
+| `operators` | array of tables | `[]` | Named operator accounts. Each has `name`, `password_hash` (bcrypt), and `role` (`"viewer"`, `"operator"`, or `"administrator"`; default `"viewer"`). |
+
+```toml
+[server.admin]
+session_ttl_secs = 900
+
+[[server.admin.operators]]
+name          = "alice"
+password_hash = "$2b$12$…"
+role          = "administrator"
+```
+
+There are no built-in accounts. See [Admin API and RBAC](../security/admin-api.md) for roles and login limits.
 
 ### Mode validation
 
-`mode` is the single most important setting. It determines which code paths are active:
+`mode` determines which code paths are active:
 
 - **`signer`** — reads revocation sources, produces ahu bundles, does **not** serve OCSP queries.
 - **`edge`** — serves pre-signed responses from bundles, holds **no** private keys.
 - **`combined`** — runs both signer and edge in one process.
 
-hoike validates mode-specific constraints at startup. For example, `nonce_policy = "live"` on an `edge` node is a fatal error (edge nodes have no signing keys).
-
----
-
-## `[server.admin]`
-
-Admin API configuration. When present, hoike exposes a REST API at `/api/admin/` for monitoring and management.
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `session_ttl_secs` | integer | `3600` | Session token lifetime in seconds. |
-
-### `[[server.admin.operators]]`
-
-Operator accounts for admin API authentication. Each operator has a name, bcrypt password hash, and role.
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `name` | string | **required** | Operator username. |
-| `password_hash` | string | **required** | bcrypt hash of the operator's password. Generate with: `htpasswd -nbBC 12 "" 'password' \| cut -d: -f2` |
-| `role` | string | `"viewer"` | Operator role: `"administrator"`, `"operator"`, or `"viewer"`. |
-
-**Role hierarchy:**
-
-| Role | Permissions |
-|------|-------------|
-| `administrator` | Full access: config view, sign triggers, rotation commands, bundle reload |
-| `operator` | Operational actions: reload bundles, trigger sign, query |
-| `viewer` | Read-only: dashboard, bundles, CAs, gossip, config view |
-
-```toml
-[server.admin]
-session_ttl_secs = 3600
-
-[[server.admin.operators]]
-name          = "admin"
-password_hash = "$2b$12$..."
-role          = "administrator"
-
-[[server.admin.operators]]
-name          = "monitor"
-password_hash = "$2b$12$..."
-role          = "viewer"
-```
-
----
-
-## `[server.webui]`
-
-Web UI configuration. When present, hoike serves a React + PatternFly 6 dashboard at `/ui/`.
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `static_dir` | string | — | Path to the webui `dist/` directory. When set, files are served from disk (development mode). When omitted with the `embed-webui` Cargo feature, the UI is embedded in the binary. |
-
-```toml
-[server.webui]
-static_dir = "/path/to/hoike/webui/dist"
-```
-
-For production, build with `--features embed-webui` to embed the UI in the binary (no `static_dir` needed):
-
-```sh
-cd webui && npm run build
-cargo build --release --features embed-webui
-```
+hoike validates mode-specific constraints at startup. `signer` and `combined` require every `[[ca]]` to have both a `source` and a `signing_key`. `nonce_policy = "live"` is only meaningful where a signing key is present.
 
 ---
 
@@ -110,10 +79,14 @@ Paths and limits for bundle storage and persistent state.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `bundle_dir` | string | `"/var/lib/hoike/bundles"` | Directory where ahu bundles are stored. The signer writes here; the edge reads from here. Must be readable (edge) or read-write (signer/combined). |
+| `bundle_dir` | string | **required** | Directory where ahu bundles are stored. The signer writes here; the edge reads from here. |
 | `state_db` | string | `"/var/lib/hoike/state"` | Path to the persistent state database. Stores epoch high-water marks for anti-rollback protection. **This path must survive restarts** — losing it resets rollback protection. See [Anti-Rollback Protection](anti-rollback.md). |
-| `max_chain` | integer | `24` | Maximum number of delta bundles in a chain before the edge demands a full bundle. Lower values increase bandwidth (more full bundles); higher values save bandwidth but increase recovery time after a missed delta. |
-| `seal_trust_anchors` | array of strings | — | Paths to DER/PEM certificates trusted as bundle seal signers. When set, bundles without a valid CMS seal are rejected on load. Omit for backward compatibility (seal verification skipped with a warning). |
+| `max_chain` | integer | `24` | Maximum number of delta bundles in a chain before the edge demands a full bundle. |
+| `seal_trust_anchors` | array of strings | — | Paths to DER/PEM CA certificates. A bundle seal is accepted if its signer certificate was **directly issued** by one of these anchors. |
+| `seal_signer_pins` | array of strings | — | Paths to exact seal-signer certificates (PEM or DER). A seal is accepted if its certificate matches one of these byte for byte. |
+| `seal_authorizations` | array of tables | `[]` | `[[storage.seal_authorizations]]` entries with `producer_id`, `issuer_key_hash`, and `signer_sha256` restricting which trusted signer may seal which scope. When any entry exists, every scope needs a matching one. |
+
+When neither `seal_trust_anchors` nor `seal_signer_pins` is set, seal enforcement is **disabled** and bundles load with a warning. Every edge that receives bundles from another machine must set one of them. See [Seal Trust Policy](seal-trust.md).
 
 ```toml
 [storage]
@@ -132,20 +105,28 @@ SWIM gossip protocol settings for edge fleet coordination. Gossip provides membe
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `enabled` | boolean | `true` | Enable or disable gossip. Set to `false` for air-gap/enclave deployments. See [Air-Gap Deployments](air-gap.md). |
+| `enabled` | boolean | `false` | Enable or disable gossip. Set to `false` for air-gap/enclave deployments. See [Air-Gap Deployments](air-gap.md). |
 | `bind` | string | `"0.0.0.0:7946"` | UDP/TCP address for the SWIM protocol listener. |
-| `seeds` | array of strings | `[]` | Initial seed nodes for cluster join. At least one seed must be reachable for a new node to join the fleet. Format: `"hostname:port"`. |
-| `identity_key` | string | — | Path to the node's gossip identity key. All gossip messages are signed with this key. |
-| `node_name` | string | hostname | Human-readable node identifier. Must be unique within the gossip cluster. Defaults to the system hostname if omitted. |
+| `seeds` | array of strings | `[]` | Initial seed nodes for cluster join. Format: `"hostname:port"`. |
+| `identity_key` | string | — | Path to this node's Ed25519 PKCS#8 private key. When set, generation and urgent-revocation broadcasts from this node are signed. |
+| `peer_identities` | table | `{}` | Map of peer `node_name` → path of that peer's Ed25519 public key. When **non-empty** (enforcing mode), unsigned, forged, or misattributed broadcasts are dropped before re-propagation. When empty (permissive mode), unsigned broadcasts are accepted. |
+| `peer_keys` | array | — | **Rejected.** A non-empty value fails startup with an error directing you to `peer_identities`. |
+| `node_name` | string | `$HOSTNAME` or `"hoike-node"` | Node identifier used in membership and as the key in peers' `peer_identities` maps. Must be unique in the fleet. |
 
 ```toml
 [gossip]
 enabled      = true
 bind         = "0.0.0.0:7946"
 seeds        = ["edge-a.pki.example:7946", "edge-b.pki.example:7946"]
-identity_key = "/etc/hoike/gossip.key"
+identity_key = "/etc/hoike/gossip/edge-01.key"
 node_name    = "edge-01"
+
+[gossip.peer_identities]
+"edge-02"  = "/etc/hoike/gossip/edge-02.pub"
+"signer-1" = "/etc/hoike/gossip/signer-1.pub"
 ```
+
+Signing authenticates broadcast **origin**; SWIM liveness traffic (pings/acks) is not authenticated and nothing on the gossip channel is encrypted. Gossip never carries certificate status data.
 
 ### Disabling gossip
 
@@ -156,20 +137,32 @@ For air-gap or single-node deployments, disable gossip entirely:
 enabled = false
 ```
 
-When gossip is disabled, bundles must be delivered out-of-band (removable media, `hoike import`, or a scheduled file copy). See [Air-Gap Deployments](air-gap.md).
+When gossip is disabled, bundles must be delivered out-of-band (removable media, admin API upload, or a scheduled file copy). See [Air-Gap Deployments](air-gap.md).
 
 ---
 
 ## `[[ca]]`
 
-Each `[[ca]]` section configures one CA whose certificates this responder handles. hoike supports multiple `[[ca]]` sections for multi-CA deployments. Requests are routed to the correct CA by `issuerKeyHash` lookup. See [Multi-CA Routing](multi-ca.md).
+Each `[[ca]]` section configures one CA whose certificates this responder handles. hoike supports multiple `[[ca]]` sections for multi-CA deployments. Requests are routed to the correct CA by `issuerKeyHash` (and `issuerNameHash`) lookup. See [Multi-CA Routing](multi-ca.md).
 
-### Identity and source
+### Identity and routing
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `label` | string | **required** | Human-readable label for this CA. Used in logs, metrics, and bundle filenames. Must be unique across all `[[ca]]` sections. |
-| `source` | inline table | **required** | Revocation data source. See [Source types](#source-types) below. |
+| `label` | string | **required** | Unique, non-empty label for this CA. Used in logs, metrics, and bundle filenames, so it may not be `.`, `..`, or contain `/` or `\`. |
+| `bundle_file` | string | — | Explicit path to this CA's ahu bundle. When omitted, the edge locates the bundle within `bundle_dir` by `label`. |
+| `issuer_name_hash` | string (hex) | — | Hex-encoded `issuerNameHash` for explicit routing. When absent it is extracted from the loaded bundle manifest. |
+| `issuer_key_hash` | string (hex) | — | Hex-encoded `issuerKeyHash` for explicit routing. When absent it is extracted from the loaded bundle manifest. |
+| `source` | table | required for signer/combined | Revocation data source. See [Source types](#source-types). |
+
+### Signer identity inputs
+
+Signer and combined nodes need the issuer DN and public key to compute each response's `CertID`. Supply them base64-encoded; they are decoded on load.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `issuer_name_der_b64` | string (base64) | — | DER of the issuer Distinguished Name. |
+| `issuer_key_bytes_b64` | string (base64) | — | Raw issuer public-key bytes. |
 
 ### Signing key
 
@@ -190,10 +183,10 @@ module      = "/usr/lib/libCryptoki2_64.so"   # Vendor PKCS#11 library
 token_label = "hoike-partition"                # Token/partition name
 key_label   = "ocsp-signing"                   # CKA_LABEL of the signing key
 pin_env     = "HOIKE_HSM_PIN"                  # Read PIN from env var
-# Or omit pin/pin_env — hoike prompts interactively at startup
+# Omit pin/pin_env and hoike prompts interactively at startup
 ```
 
-**Demo key** (testing only):
+**Demo key** (testing only — refuses to run in production intent):
 ```toml
 [ca.signing_key]
 type = "demo"
@@ -201,70 +194,79 @@ type = "demo"
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `responder_cert` | string | — | Path to the OCSP signing certificate (DER or PEM). Embedded in each `BasicOCSPResponse.certs` per RFC 9919 §3.2.2. When set, `ResponderID` uses the cert's SPKI key hash. |
-| `seal_key` | string | — | Path to PKCS#8 key for CMS bundle seal signing. Should differ from the OCSP signing key. |
+| `sig_alg` | string | `"ecdsa-p256"` | Signature algorithm: `"ecdsa-p256"`, `"ml-dsa-44"`, `"ml-dsa-65"`, or `"ml-dsa-87"`. Any other value is a startup error. `nonce_policy = "live"` is not yet supported with ML-DSA. |
+| `responder_cert` | string | — | Path to the delegated OCSP signing certificate (DER or PEM). Embedded in each `BasicOCSPResponse.certs` per RFC 9919 §3.2.2. When set, `ResponderID` uses the cert's SPKI key hash. |
+| `seal_key` | string | — | Path to a PKCS#8 key for CMS bundle seal signing. SHOULD differ from the OCSP signing key. Falls back to the signing key (with a warning) when absent. See [Seal Trust Policy](seal-trust.md). |
 | `seal_cert` | string | — | Path to the seal signer's certificate. |
 
-### Signature algorithm
+### CertID compatibility
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `sig_alg` | string | `"ecdsa-p256"` | Signing algorithm: `"ecdsa-p256"`, `"ml-dsa-44"`, `"ml-dsa-65"`, or `"ml-dsa-87"`. |
-
-### CertID and compatibility
-
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `certid_compat` | string | `"dual"` | CertID hash algorithm compatibility. `"dual"` indexes responses by both SHA-256 and SHA-1 `issuerKeyHash` (for clients that still send SHA-1). `"sha256"` accepts only SHA-256. `"sha1"` accepts only SHA-1 (not recommended). |
+| `certid_compat` | string | `"dual"` | CertID hash coverage baked into produced bundles. `"dual"` indexes each response by **both** SHA-256 and SHA-1 `issuerKeyHash` (for clients that still send SHA-1) — this doubles the manifest entry count. `"sha256"` indexes by SHA-256 only; `"sha1"` by SHA-1 only (not recommended). Any other value is a startup error. |
 
 ### Nonce handling
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `nonce_policy` | string | `"ignore"` | How to handle nonces in OCSP requests. `"ignore"` omits the nonce from responses (appropriate for pre-signed). `"forward"` proxies the request to the signer for a live-signed response with nonce. `"live"` signs a fresh response with nonce on every request (signer mode only). See [Nonce Policies](nonce-policies.md). |
-| `forward_to` | string | — | URL of the signer to forward nonce-bearing requests to. **Required** when `nonce_policy = "forward"`. |
+| `nonce_policy` | string | `"ignore"` | `"ignore"` omits the nonce from responses (appropriate for pre-signed). `"forward"` proxies nonce-bearing requests to a signer. `"live"` signs a fresh response with the client's nonce on every request (needs a signing key). See [Nonce Policies](nonce-policies.md). |
+| `forward_to` | string | — | URL of the signer to forward nonce-bearing requests to. **Required** when `nonce_policy = "forward"`. Must be `https://` unless `forward_insecure` is set; redirects are not followed. |
+| `forward_insecure` | boolean | `false` | Permit an `http://` `forward_to` target. Lab use only; logged at startup. |
+| `forward_ca` | string | — | Accepted but **not yet applied** to the outbound client: the forward target is validated against the system trust store. Install a private CA system-wide instead. `hoike check` prints this caveat. |
 
 ### Timing and batch production
 
+All timing keys are **integer seconds**, matching `session_ttl_secs`.
+
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `validity` | duration string | `"24h"` | Response validity window (`nextUpdate − thisUpdate`). Determines how long a cached response remains valid. |
-| `batch_interval` | duration string | `"1h"` | How often the signer produces a new batch of responses. The **signer outage budget** is `validity − batch_interval` — if the signer is down longer than this, edge nodes will begin serving expired responses. |
-| `jitter` | duration string | `"2h"` | Random jitter added to `thisUpdate` to prevent response expiration thundering herds. Each response's `thisUpdate` is shifted by a random offset within `[0, jitter]`. |
-| `max_age_fraction` | float | `0.5` | Fraction of remaining validity used for `Cache-Control: max-age`. A value of `0.5` means the `max-age` header is set to half the time remaining until `nextUpdate`. |
-| `urgent_revocation` | boolean | `true` | When `true`, the signer produces an off-cycle delta bundle immediately upon detecting a new revocation, rather than waiting for the next `batch_interval`. |
-| `archive_cutoff` | duration string | `"1y"` | How far back to keep responses for expired certificates. Certificates that expired more than this duration ago are dropped from bundles. |
+| `validity_secs` | integer | `86400` | Response validity window (`nextUpdate − thisUpdate`), in seconds. Determines how long a cached response remains valid. |
+| `batch_interval` | integer | `3600` | How often (seconds) the signer produces a new batch. The **signer outage budget** is roughly `validity_secs − batch_interval`: if the signer is down longer, edges begin serving expired responses. |
+| `jitter_secs` | integer | `7200` | Upper bound of randomized jitter added to `nextUpdate` so a fleet's responses do not all expire simultaneously (thundering-herd avoidance). Bounded by the source's own `nextUpdate`. |
+| `max_age_fraction` | float | `0.5` | Fraction of a response's validity window advertised as the edge's HTTP `Cache-Control: max-age`. Must be in the range `(0, 1]`; any other value is a startup error. |
+| `urgent_revocation` | boolean | `true` | When `true`, the signer produces an off-cycle bundle **immediately** on detecting a newly revoked certificate, instead of waiting for the next `batch_interval`. The off-cycle run emits a `signer_generation` audit event with `trigger = "urgent"`. |
+| `archive_cutoff_secs` | integer | `0` (disabled) | Drop entries for certificates that expired more than this many seconds ago, bounding bundle size. **Requires per-certificate `notAfter`, which only the 389 DS syncrepl source supplies — it is a no-op for CRL sources**, and `hoike check` warns if you set it on a CRL-backed CA. Entries with unknown expiry are never dropped, so a revoked certificate can never silently degrade to "unknown". |
 
 ### Completeness
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `completeness` | string | `"authoritative-complete"` | Declares whether this responder has complete revocation data for the CA. `"authoritative-complete"` means the responder is the authoritative source for this CA's revocation status — any certificate not found in the bundle is reported as `good`. `"partial"` means the responder only knows about certificates listed in a CRL — unlisted certificates return `unauthorized` (unknown). |
+| `completeness` | string | `"partial"` | Declares whether the producer asserts a complete directory enumeration for this CA. `"partial"` (default) means the bundle covers only the certificates it lists. `"authoritative-complete"` may only be produced from a proven full directory snapshot (389 DS syncrepl after a complete refresh); it is metadata on the bundle, not a serve-time switch. |
+
+> **Serve-time semantics.** Regardless of `completeness`, a serial with **no entry** in the loaded bundle is answered `unauthorized` — the edge never fabricates a `good` for an unknown serial. `completeness` governs which bundles the *signer* is permitted to stamp as authoritative-complete, not whether the *edge* invents statuses.
 
 ### Source types
 
-The `source` field is an inline table that specifies where revocation data comes from.
+The `[ca.source]` table specifies where revocation data comes from.
 
 **CRL source** (implemented):
 
 ```toml
-source = { type = "crl", path = "/var/lib/hoike/crls/enterprise.crl" }
+[ca.source]
+type        = "crl"
+path        = "/var/lib/hoike/crls/enterprise.crl"
+issuer_cert = "/etc/hoike/trust/enterprise-ca.crt"
 ```
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `type` | string | Must be `"crl"`. |
-| `path` | string | Path to the CRL file. hoike watches this path for changes and reloads automatically. |
+| `path` | string | Path to the CRL file (DER or PEM). Re-read at each batch interval and on an admin-triggered signing run; there is no file watcher. |
+| `issuer_cert` | string | Certificate of the CRL issuer, used to verify the CRL signature and issuer binding. Independently provisioned trusted configuration, not discovered from the CRL. |
+
+Only complete, direct CRLs signed with ECDSA P-256, RSA PKCS#1 v1.5 (SHA-256/384/512), or ML-DSA are accepted. CRL sources carry no per-certificate expiry, so `archive_cutoff_secs` has no effect on them. See [Revocation Sources](revocation-sources.md).
 
 **Dogtag syncrepl source** (requires `--features dogtag-sync`):
 
 ```toml
 [ca.source]
-type         = "dogtag-sync"
-ldap_url     = "ldap://ds-iot.cert-lab.local:3389"
-base_dn      = "ou=certificateRepository,ou=ca,o=pki-iot-ca-CA"
-bind_dn      = "cn=Directory Manager"
+type              = "dogtag-sync"
+ldap_url          = "ldaps://ds.pki.example:636"
+base_dn           = "ou=certificateRepository,ou=ca,o=pki-iot-ca-CA"
+bind_dn           = "uid=hoike-reader,ou=people,o=pki-iot-ca-CA"
 bind_password_env = "HOIKE_LDAP_PASSWORD"
+tls               = "ldaps"
+ca_cert           = "/etc/hoike/tls/ds-ca.pem"
 ```
 
 | Field | Type | Description |
@@ -272,19 +274,21 @@ bind_password_env = "HOIKE_LDAP_PASSWORD"
 | `type` | string | Must be `"dogtag-sync"`. |
 | `ldap_url` | string | LDAP URL for the Dogtag 389 DS instance. |
 | `base_dn` | string | Search base for the certificate repository. |
-| `bind_dn` | string | Bind DN (default: `cn=Directory Manager`). |
+| `bind_dn` | string | Bind DN (default `cn=Directory Manager`). |
 | `bind_password` | string | Bind password (prefer `bind_password_env`). |
 | `bind_password_env` | string | Env var containing the bind password. |
-| `filter` | string | LDAP search filter (default: `(objectClass=certificateRecord)`). |
-| `cookie_path` | string | Path for the sync cookie checkpoint file. |
+| `cookie_path` | string | Path to checkpoint the sync cookie (default: `state_db`-relative). Population and cookie are checkpointed together. |
+| `filter` | string | LDAP filter (default `(objectClass=certificateRecord)`). |
+| `tls` | string | `"ldaps"`, `"starttls"`, or `"none"` (default, for backward compatibility). Use `ldaps` or `starttls` in production; StartTLS upgrades before the bind. |
+| `ca_cert` | string | PEM CA bundle used to validate the directory server's certificate instead of the system roots. |
 
-This source uses RFC 4533 Content Synchronization (syncrepl) for incremental updates. It enumerates all issued certificates, enabling `authoritative-complete` bundles — a serial not in the repository is confirmed never-issued.
+This source uses RFC 4533 Content Synchronization (syncrepl). It enumerates all issued certificates, supplies each certificate's `notAfter` (enabling `archive_cutoff_secs`), and — after a proven complete refresh — enables `authoritative-complete` bundles.
 
 ### Key rotation
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `key_rotation.renew_before_days` | integer | `7` | Days before cert expiry to trigger rotation warning. |
+| `key_rotation.renew_before_days` | integer | `7` | Days before cert expiry to trigger a rotation warning. |
 | `key_rotation.check_interval_hours` | integer | `1` | Hours between rotation checks. |
 | `key_rotation.rotation_command` | string | — | Shell command to execute when rotation is needed. Receives the CA label and cert path as arguments. |
 
@@ -299,23 +303,27 @@ rotation_command     = "/usr/local/bin/renew-ocsp-cert.sh"
 
 ```toml
 [[ca]]
-label          = "enterprise-issuing-01"
-nonce_policy   = "live"
-completeness   = "authoritative-complete"
-responder_cert = "/etc/hoike/ocsp-signing.pem"
+label                = "enterprise-issuing-01"
+nonce_policy         = "live"
+completeness         = "authoritative-complete"
+issuer_name_der_b64  = "MEUx…"   # DER of the issuer DN, base64
+issuer_key_bytes_b64 = "A0IA…"   # issuer public-key bytes, base64
 
 [ca.source]
-type         = "dogtag-sync"
-ldap_url     = "ldap://ds.pki.example:3389"
-base_dn      = "ou=certificateRepository,ou=ca,o=pki-ca-CA"
+type              = "dogtag-sync"
+ldap_url          = "ldaps://ds.pki.example:636"
+base_dn           = "ou=certificateRepository,ou=ca,o=pki-ca-CA"
 bind_password_env = "HOIKE_LDAP_PASSWORD"
+tls               = "ldaps"
 
 [ca.signing_key]
-type        = "pkcs11"
-module      = "/usr/lib/libCryptoki2_64.so"
-token_label = "hoike-partition"
-key_label   = "ocsp-signing"
-pin_env     = "HOIKE_HSM_PIN"
+type           = "pkcs11"
+module         = "/usr/lib/libCryptoki2_64.so"
+token_label    = "hoike-partition"
+key_label      = "ocsp-signing"
+pin_env        = "HOIKE_HSM_PIN"
+sig_alg        = "ecdsa-p256"
+responder_cert = "/etc/hoike/ocsp-signing.pem"
 
 [ca.key_rotation]
 renew_before_days = 7
@@ -324,36 +332,25 @@ rotation_command  = "/usr/local/bin/renew-ocsp-cert.sh"
 
 ---
 
-## Duration strings
-
-Duration values use a human-readable format: a number followed by a unit suffix.
-
-| Suffix | Meaning | Example |
-|--------|---------|---------|
-| `s` | seconds | `"30s"` |
-| `m` | minutes | `"15m"` |
-| `h` | hours | `"24h"` |
-| `d` | days | `"7d"` |
-| `y` | years (365 days) | `"1y"` |
-
----
-
 ## Validation rules
 
-hoike validates the configuration at startup and exits with a descriptive error if any rule is violated:
+hoike validates the configuration at startup (and under `hoike check`) and exits with a descriptive error if any rule is violated. Beyond `deny_unknown_fields` (any unknown key fails), the enforced rules are:
 
-| Rule | Error |
-|------|-------|
-| `mode` is missing or not one of `signer`, `edge`, `combined` | `invalid server mode` |
-| `nonce_policy = "live"` with `mode = "edge"` | `live nonce signing requires signer mode` |
-| `nonce_policy = "forward"` without `forward_to` | `forward_to is required when nonce_policy = "forward"` |
-| `signing = "delegated"` without `responder_cert` or `responder_key` | `delegated signing requires responder_cert and responder_key` |
-| `batch_interval >= validity` | `batch_interval must be less than validity` |
-| `max_chain < 1` | `max_chain must be at least 1` |
-| Duplicate `label` across `[[ca]]` sections | `duplicate CA label` |
-| `bundle_dir` does not exist or is not writable (signer/combined) | `bundle_dir is not writable` |
-| `state_db` parent directory does not exist | `state_db path is invalid` |
-| `gossip.enabled = true` without `identity_key` | `gossip identity_key is required when gossip is enabled` |
+| Rule | Error (abridged) |
+|------|------------------|
+| `admin_tls` or `metrics_tls` set on a binary built without `--features tls` | *TLS configured but this binary was built without the tls feature* |
+| `admin_tls` set without `admin_listen` | *admin_tls requires admin_listen; refusing plaintext management fallback* |
+| `metrics_tls` set without `metrics_listen` | *metrics_tls requires metrics_listen* |
+| `gossip.enabled` with a non-empty `peer_keys` | *replace gossip.peer_keys with peer_identities …* |
+| Empty, reserved, path-bearing, or duplicate `label` | *CA labels must be unique nonempty file names* |
+| `forward_to` not `https://` (and not `forward_insecure` + `http://`) | *forward_to requires https:// (or explicit forward_insecure for http://)* |
+| Invalid `sig_alg` | *invalid sig_alg … expected one of: ecdsa-p256, ml-dsa-44, ml-dsa-65, ml-dsa-87* |
+| ML-DSA `sig_alg` with `nonce_policy = "live"` | *nonce_policy=live is not yet supported with … signing* |
+| Invalid `certid_compat` | *invalid certid_compat … expected one of: dual, sha256, sha1* |
+| `max_age_fraction` outside `(0, 1]` | *invalid max_age_fraction … must be in the range (0, 1]* |
+| signer/combined `[[ca]]` missing `source` | *has no source configured, required for … mode* |
+| signer/combined `[[ca]]` missing `signing_key` | *has no signing_key configured, required for … mode* |
+| signer/combined with no `[[ca]]` | *… mode requires at least one [[ca]] with a source* |
 
 ---
 
@@ -364,74 +361,67 @@ hoike validates the configuration at startup and exits with a descriptive error 
 
 [server]
 mode        = "edge"           # Keyless serving from pre-signed bundles
-listen      = "0.0.0.0:2560"   # IANA-assigned OCSP port
-max_request = 8192             # Max POST body; GET is path-limited to ~255 bytes
+listen      = "0.0.0.0:2560"   # IANA-assigned OCSP port, plaintext by design
+max_request = 8192
 
 [storage]
 bundle_dir = "/var/lib/hoike/bundles"   # Where ahu bundles are read from
 state_db   = "/var/lib/hoike/state"     # Epoch high-water marks — MUST persist across restarts
-max_chain  = 24                         # Accept up to 24 delta bundles before requiring a full
+max_chain  = 24
+seal_trust_anchors = ["/etc/hoike/trust/producer-ca.pem"]  # Admit only sealed bundles from this CA
 
 [gossip]
 enabled      = true
 bind         = "0.0.0.0:7946"
 seeds        = ["edge-a.pki.example:7946", "edge-b.pki.example:7946"]
-identity_key = "/etc/hoike/gossip.key"
+identity_key = "/etc/hoike/gossip/edge-01.key"
 node_name    = "edge-01"
+
+[gossip.peer_identities]
+"edge-02"  = "/etc/hoike/gossip/edge-02.pub"
+"signer-1" = "/etc/hoike/gossip/signer-1.pub"
 
 # Enterprise issuing CA — CRL-based, pre-signed responses
 [[ca]]
 label          = "enterprise-issuing-01"
-source         = { type = "crl", path = "/var/lib/hoike/crls/enterprise.crl" }
-signing        = "ca-direct"
-sig_alg        = "ecdsa-p256"
-responder_id   = "by-key"
-certid_compat  = "dual"          # Accept both SHA-256 and SHA-1 CertID hashes
 nonce_policy   = "ignore"        # Pre-signed — nonce omitted from responses
-validity       = "24h"           # Signer outage budget: 24h − 1h = 23h
-batch_interval = "1h"
-jitter         = "2h"
-archive_cutoff = "1y"
-completeness   = "authoritative-complete"
-
-# Partner issuing CA — delegated responder, nonces forwarded to signer
-[[ca]]
-label          = "partner-issuing-01"
-source         = { type = "crl", path = "/var/lib/hoike/crls/partner.crl" }
-signing        = "delegated"
-responder_cert = "/etc/hoike/partner-ocsp.pem"
-responder_key  = "/etc/hoike/partner-ocsp.key"
-sig_alg        = "ecdsa-p384"
-responder_id   = "by-key"
-certid_compat  = "sha256"        # Partner clients all support SHA-256
-nonce_policy   = "forward"       # Proxy nonce-bearing requests to signer
-forward_to     = "https://signer.pki.example:2560"
-validity       = "12h"
-batch_interval = "30m"
-jitter         = "1h"
-archive_cutoff = "6m"            # Partner certs are short-lived
+certid_compat  = "dual"          # Index by both SHA-256 and SHA-1 CertID hashes
+validity_secs  = 86400           # 24h window; outage budget ≈ 86400 − 3600
+batch_interval = 3600            # New batch hourly
+jitter_secs    = 7200            # Up to 2h of expiry spread
 completeness   = "partial"       # CRL may not list every certificate
+
+[ca.source]
+type        = "crl"
+path        = "/var/lib/hoike/crls/enterprise.crl"
+issuer_cert = "/etc/hoike/trust/enterprise-ca.crt"
+
+# Partner issuing CA — nonces forwarded to a signer
+[[ca]]
+label            = "partner-issuing-01"
+nonce_policy     = "forward"     # Proxy nonce-bearing requests to the signer
+forward_to       = "https://signer.pki.example:2560"
+certid_compat    = "sha256"      # Partner clients all support SHA-256
+validity_secs    = 43200         # 12h
+batch_interval   = 1800          # 30m
+max_age_fraction = 0.5
+completeness     = "partial"
+
+[ca.source]
+type        = "crl"
+path        = "/var/lib/hoike/crls/partner.crl"
+issuer_cert = "/etc/hoike/trust/partner-ca.crt"
 ```
 
 ---
 
-## Environment variable overrides
+## Environment variables
 
-Any configuration key can be overridden with an environment variable. The naming convention is:
-
-```
-HOIKE_<SECTION>__<KEY>
-```
-
-Double underscores separate section from key; single underscores within a key name are preserved.
+hoike reads exactly two values from the environment, both secrets that should not be written to the config file:
 
 | Config key | Environment variable |
 |------------|---------------------|
-| `server.mode` | `HOIKE_SERVER__MODE` |
-| `server.listen` | `HOIKE_SERVER__LISTEN` |
-| `storage.bundle_dir` | `HOIKE_STORAGE__BUNDLE_DIR` |
-| `gossip.enabled` | `HOIKE_GOSSIP__ENABLED` |
+| `signing_key.pin_env` | the variable it names, holding the HSM PIN |
+| `source.bind_password_env` | the variable it names, holding the directory bind password |
 
-Environment variables are useful for container deployments where the base config file is baked into the image and per-instance settings (like `node_name` or `listen`) vary.
-
-> **Note:** `[[ca]]` array sections cannot be fully configured via environment variables due to TOML array-of-tables semantics. Use the config file for CA definitions.
+No other configuration key can be set or overridden from the environment. For per-instance settings in containers, template the config file or mount an instance-specific `hoike.toml`.

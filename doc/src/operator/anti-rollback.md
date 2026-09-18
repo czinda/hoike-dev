@@ -69,7 +69,7 @@ Bundle load failures are categorized into four reasons:
 | **digest** | Bundle content does not match manifest digest | **High** — corruption or tampering |
 | **seal** | CMS signature verification failed | **High** — wrong key, tampering, or corruption |
 
-The first two (`rollback` and `fork`) are security events. The latter two (`digest` and `seal`) typically indicate data corruption during transfer, though tampering should not be ruled out.
+The first two (`rollback` and `fork`) are security events. The latter two (`digest` and `seal`) typically indicate data corruption during transfer, though tampering should not be ruled out. See [Seal Trust Policy](./seal-trust.md) for bundle admission rules.
 
 ## state_db Persistence
 
