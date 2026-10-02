@@ -24,7 +24,7 @@ docs:
 api:
 	# Clear stale target/doc first: --no-deps skips *generating* dependency
 	# docs but leaves any pre-existing ones in place, and copying them all in
-	# blows past Cloudflare Pages' 20,000-file/deployment limit.
+	# can exceed the deployment's 20,000-file asset budget.
 	rm -rf "$(API_TARGET_DIR)/doc"
 	CARGO_TARGET_DIR="$(API_TARGET_DIR)" cargo doc --locked --workspace --exclude hoike-cli --lib --no-deps \
 		--manifest-path "$(HOIKE_REPO)/Cargo.toml" \

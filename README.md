@@ -64,10 +64,10 @@ a static hosting fallback to the landing page.
 Static assets are served directly at the edge; the site does not run an OCSP responder
 inside a Worker and does not need D1 or a runtime signing key.
 
-The Worker owns the `hoike.dev/*` and `www.hoike.dev/*` routes. The existing proxied DNS
-records and the previous `hoike-dev` Pages deployment are retained as a fallback. Worker
-routes take precedence over that origin. Removing both Worker routes restores the Pages
-site; a subsequent Worker deployment re-applies the routes from `wrangler.jsonc`.
+The Worker owns `hoike.dev` and `www.hoike.dev` as native custom domains. Cloudflare manages
+their DNS records and certificates. The previous `hoike-dev` Pages project, its deployments,
+and its custom-domain associations have been removed; there is no Pages origin or fallback.
 
 For a normal content rollback, revert the Git commit and push to `main`, or roll back the
-Worker version in Cloudflare. Do not run `wrangler pages deploy` for routine releases.
+Worker version in Cloudflare. The custom domains remain attached during a version rollback.
+Do not run `wrangler pages deploy` for this site.

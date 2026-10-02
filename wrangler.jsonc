@@ -9,9 +9,9 @@
   },
   "workers_dev": false,
   "preview_urls": false,
-  // Routes take precedence over Pages. Preserve its DNS for easy rollback.
+  // Native Worker custom domains own DNS and certificates; no Pages origin.
   "routes": [
-    { "pattern": "hoike.dev/*", "zone_name": "hoike.dev" },
-    { "pattern": "www.hoike.dev/*", "zone_name": "hoike.dev" }
+    { "pattern": "hoike.dev", "custom_domain": true },
+    { "pattern": "www.hoike.dev", "custom_domain": true }
   ]
 }
