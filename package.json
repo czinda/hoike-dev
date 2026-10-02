@@ -1,0 +1,14 @@
+{
+  "name": "hoike-dev",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bash scripts/build-ci.sh",
+    "check": "node scripts/check-site.mjs",
+    "dev": "wrangler dev",
+    "deploy": "npm run build && wrangler deploy",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "devDependencies": { "wrangler": "4.145.0" }
+}

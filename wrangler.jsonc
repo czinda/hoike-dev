@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "hoike-dev",
+  "compatibility_date": "2026-10-02",
+  "assets": {
+    "directory": "./deploy",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "404-page"
+  },
+  "workers_dev": false,
+  "preview_urls": false,
+  // Routes take precedence over Pages. Preserve its DNS for easy rollback.
+  "routes": [
+    { "pattern": "hoike.dev/*", "zone_name": "hoike.dev" },
+    { "pattern": "www.hoike.dev/*", "zone_name": "hoike.dev" }
+  ]
+}

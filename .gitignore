@@ -13,3 +13,4 @@ api/
 # mdBook build output
 doc-build/
 deploy/
+.build/
