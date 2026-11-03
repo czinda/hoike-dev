@@ -10,14 +10,14 @@ hoike emits a structured audit log on a dedicated `tracing` target named `audit`
 |---------|-----------|--------|---------|
 | `request_rejected` | edge, OCSP handler | `reason`, `serial` | An OCSP request was refused. Today the only reason is `unauthorized` (request for a CertID under a scope the node is not authorized to serve). |
 | `bundle_load_failed` | edge, signer, CLI | `trigger`, `reason`, `ca` (when known) | A bundle was rejected at load. `trigger` is one of `initial_load`, `scheduled_reload`, `admin_reload`, `on_demand_reload`, `on_demand_all_reload`. |
-| `signer_generation` | signer | `ca`, `trigger`, `epoch` | A new generation was produced and published. `trigger` is `scheduled`, `on_demand`, or `on_demand_all`. |
+| `signer_generation` | signer | `ca`, `trigger`, `epoch` | A new generation was produced and published. `trigger` is `scheduled`, `on_demand`, `on_demand_all`, or `urgent`. `urgent` marks an off-cycle urgent-revocation pass — a bundle produced shortly after a newly detected revocation (the urgent poll runs every 300 seconds) — as opposed to a scheduled batch pass. |
 | `signer_generation_failed` | signer | `ca` (when known), `trigger`, `error` | Production failed; the previous generation stays in service. |
 
 ### `bundle_load_failed` reasons
 
 | `reason` | Cause |
 |----------|-------|
-| `rollback` | Epoch lower than the persisted high-water mark, or a jump larger than `max_chain` |
+| `rollback` | Epoch lower than the persisted high-water mark (an equal epoch is accepted only for an identical manifest digest on restart), or an epoch jump larger than the built-in limit |
 | `fork` | Two bundles claim the same epoch with different content — duplicate or compromised signer |
 | `bundle` | Malformed container, seal verification failure, or a seal from an unauthorized signer |
 | `state` | The anti-rollback state store could not be read or persisted |

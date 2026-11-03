@@ -6,7 +6,7 @@ hoike is configured with a single TOML file, loaded once at startup. The default
 hoike serve --config /path/to/hoike.toml
 ```
 
-Configuration is read from the file only — there is **no** environment-variable layering or `HOIKE_*` override mechanism. The only two values that may come from the environment are named *by* the config: the HSM PIN (`signing_key.pin_env`) and the directory bind password (`source.bind_password_env`). Each names an environment variable to read; no other key has an environment override.
+Configuration is read from the file only — there is **no** environment-variable layering or `HOIKE_*` override mechanism for config keys. The only two values that may come from the environment are named *by* the config: the HSM PIN (`signing_key.pin_env`) and the directory bind password (`source.bind_password_env`). Each names an environment variable to read; no other key has an environment override. Serving nodes additionally honor one process-level environment variable, `HOIKE_RELOAD_INTERVAL_SECS`, which controls the bundle hot-reload poll interval (see [Environment variables](#environment-variables)).
 
 Every table below is parsed with `deny_unknown_fields`: an unrecognized or misspelled key is a **hard startup error**, not a silently ignored value. Run `hoike check --config <file>` to validate a file before deploying it.
 
@@ -81,21 +81,22 @@ Paths and limits for bundle storage and persistent state.
 |-----|------|---------|-------------|
 | `bundle_dir` | string | **required** | Directory where ahu bundles are stored. The signer writes here; the edge reads from here. |
 | `state_db` | string | `"/var/lib/hoike/state"` | Path to the persistent state database. Stores epoch high-water marks for anti-rollback protection. **This path must survive restarts** — losing it resets rollback protection. See [Anti-Rollback Protection](anti-rollback.md). |
-| `max_chain` | integer | `24` | Maximum number of delta bundles in a chain before the edge demands a full bundle. |
 | `seal_trust_anchors` | array of strings | — | Paths to DER/PEM CA certificates. A bundle seal is accepted if its signer certificate was **directly issued** by one of these anchors. |
 | `seal_signer_pins` | array of strings | — | Paths to exact seal-signer certificates (PEM or DER). A seal is accepted if its certificate matches one of these byte for byte. |
 | `seal_authorizations` | array of tables | `[]` | `[[storage.seal_authorizations]]` entries with `producer_id`, `issuer_key_hash`, and `signer_sha256` restricting which trusted signer may seal which scope. When any entry exists, every scope needs a matching one. |
+| `allow_unauthenticated_bundles` | boolean | `false` | Explicitly permit **structure-only demo admission** of unsealed bundles. Takes effect only when no seal trust (`seal_trust_anchors`, `seal_signer_pins`) and no `seal_authorizations` are configured — it never bypasses configured trust. |
 
-When neither `seal_trust_anchors` nor `seal_signer_pins` is set, seal enforcement is **disabled** and bundles load with a warning. Every edge that receives bundles from another machine must set one of them. See [Seal Trust Policy](seal-trust.md).
+Bundle admission is **fail-closed**: with seal trust configured, every bundle must carry a seal that satisfies it. When no trust is configured at all, admission fails unless `allow_unauthenticated_bundles = true` is set explicitly, which enables structure-only demo admission (verify the manifest structure, trust nothing). Configured trust is never downgraded by this flag. Every edge that receives bundles from another machine must configure seal trust rather than rely on the demo escape hatch. See [Seal Trust Policy](seal-trust.md).
 
 ```toml
 [storage]
 bundle_dir = "/var/lib/hoike/bundles"
 state_db   = "/var/lib/hoike/state"
-max_chain  = 24
 ```
 
 > **Operational note:** Back up `state_db` alongside your bundle directory. If `state_db` is lost, the node cannot detect rollback or fork attacks until it re-establishes its high-water marks from a trusted source.
+
+> **State initialization:** Run `hoike init-state --config /path/to/hoike.toml` once to bootstrap the state directory **before** the first `hoike serve`. `serve` never creates state implicitly, and only one writer process may hold a given state directory at a time (enforced with an OS lock held for the process lifetime).
 
 ---
 
@@ -108,18 +109,20 @@ SWIM gossip protocol settings for edge fleet coordination. Gossip provides membe
 | `enabled` | boolean | `false` | Enable or disable gossip. Set to `false` for air-gap/enclave deployments. See [Air-Gap Deployments](air-gap.md). |
 | `bind` | string | `"0.0.0.0:7946"` | UDP/TCP address for the SWIM protocol listener. |
 | `seeds` | array of strings | `[]` | Initial seed nodes for cluster join. Format: `"hostname:port"`. |
-| `identity_key` | string | — | Path to this node's Ed25519 PKCS#8 private key. When set, generation and urgent-revocation broadcasts from this node are signed. |
-| `peer_identities` | table | `{}` | Map of peer `node_name` → path of that peer's Ed25519 public key. When **non-empty** (enforcing mode), unsigned, forged, or misattributed broadcasts are dropped before re-propagation. When empty (permissive mode), unsigned broadcasts are accepted. |
+| `auth_mode` | string | `"required"` | Inbound broadcast authentication policy. `"required"` drops unsigned, unknown, or forged broadcasts; `"permissive"` is the rollout mode that still accepts unsigned legacy broadcasts while verifying signed ones. Any other value is a startup error. |
+| `identity_key` | string | — | Path to this node's Ed25519 PKCS#8 private key, used to sign outbound generation and urgent-revocation broadcasts. **Required** when gossip is enabled with `auth_mode = "required"`; optional during a permissive rollout. |
+| `peer_identities` | table | `{}` | Map of peer `node_name` → path of that peer's Ed25519 public key (named-origin authorization). Broadcasts are verified against the key filed under the origin they claim. |
 | `peer_keys` | array | — | **Rejected.** A non-empty value fails startup with an error directing you to `peer_identities`. |
 | `node_name` | string | `$HOSTNAME` or `"hoike-node"` | Node identifier used in membership and as the key in peers' `peer_identities` maps. Must be unique in the fleet. |
 
 ```toml
 [gossip]
-enabled      = true
-bind         = "0.0.0.0:7946"
-seeds        = ["edge-a.pki.example:7946", "edge-b.pki.example:7946"]
-identity_key = "/etc/hoike/gossip/edge-01.key"
-node_name    = "edge-01"
+enabled        = true
+bind           = "0.0.0.0:7946"
+seeds          = ["edge-a.pki.example:7946", "edge-b.pki.example:7946"]
+auth_mode      = "required"
+identity_key   = "/etc/hoike/gossip/edge-01.key"
+node_name      = "edge-01"
 
 [gossip.peer_identities]
 "edge-02"  = "/etc/hoike/gossip/edge-02.pub"
@@ -196,8 +199,8 @@ type = "demo"
 |-----|------|---------|-------------|
 | `sig_alg` | string | `"ecdsa-p256"` | Signature algorithm: `"ecdsa-p256"`, `"ml-dsa-44"`, `"ml-dsa-65"`, or `"ml-dsa-87"`. Any other value is a startup error. `nonce_policy = "live"` is not yet supported with ML-DSA. |
 | `responder_cert` | string | — | Path to the delegated OCSP signing certificate (DER or PEM). Embedded in each `BasicOCSPResponse.certs` per RFC 9919 §3.2.2. When set, `ResponderID` uses the cert's SPKI key hash. |
-| `seal_key` | string | — | Path to a PKCS#8 key for CMS bundle seal signing. SHOULD differ from the OCSP signing key. Falls back to the signing key (with a warning) when absent. See [Seal Trust Policy](seal-trust.md). |
-| `seal_cert` | string | — | Path to the seal signer's certificate. |
+| `seal_key` | string | — | Path to the CMS bundle-seal signing key (PKCS#8 PEM/DER for file keys). **Paired with `seal_cert`**: the pair is mandatory for production (file or PKCS#11) signing keys and must be cryptographically distinct from the OCSP signing key — a domain-separated separation proof is enforced, so pointing both at the same key via different paths or symlinks is rejected. Demo signing may omit both (a distinct ephemeral pair is generated); configuring exactly one of the two is always an error. See [Seal Trust Policy](seal-trust.md). |
+| `seal_cert` | string | — | Path to the seal signer's certificate (PEM or DER). Required together with `seal_key`. The key/cert pair is proven with a real CMS preflight seal on every load, so a mismatched or expired replacement fails closed before publication. |
 
 ### CertID compatibility
 
@@ -212,7 +215,7 @@ type = "demo"
 | `nonce_policy` | string | `"ignore"` | `"ignore"` omits the nonce from responses (appropriate for pre-signed). `"forward"` proxies nonce-bearing requests to a signer. `"live"` signs a fresh response with the client's nonce on every request (needs a signing key). See [Nonce Policies](nonce-policies.md). |
 | `forward_to` | string | — | URL of the signer to forward nonce-bearing requests to. **Required** when `nonce_policy = "forward"`. Must be `https://` unless `forward_insecure` is set; redirects are not followed. |
 | `forward_insecure` | boolean | `false` | Permit an `http://` `forward_to` target. Lab use only; logged at startup. |
-| `forward_ca` | string | — | Accepted but **not yet applied** to the outbound client: the forward target is validated against the system trust store. Install a private CA system-wide instead. `hoike check` prints this caveat. |
+| `forward_ca` | string | — | PEM CA bundle that becomes the forwarding client's **only** root set for this CA's `forward_to` target — the bundled WebPKI roots are disabled while hostname and validity checks are kept. Must parse to at least one certificate: an unreadable, empty, or malformed file fails startup and `hoike check`, as does combining `forward_ca` with a non-HTTPS `forward_to`. Without `forward_ca`, the target is validated against the WebPKI roots bundled with hoike — **never** the operating-system trust store. |
 
 ### Timing and batch production
 
@@ -306,6 +309,10 @@ rotation_command     = "/usr/local/bin/renew-ocsp-cert.sh"
 label                = "enterprise-issuing-01"
 nonce_policy         = "live"
 completeness         = "authoritative-complete"
+sig_alg              = "ecdsa-p256"
+responder_cert       = "/etc/hoike/ocsp-signing.pem"
+seal_key             = "/etc/hoike/seal/seal-signing.key"   # Mandatory pair for
+seal_cert            = "/etc/hoike/seal/seal-signing.pem"   # production signing keys
 issuer_name_der_b64  = "MEUx…"   # DER of the issuer DN, base64
 issuer_key_bytes_b64 = "A0IA…"   # issuer public-key bytes, base64
 
@@ -317,13 +324,11 @@ bind_password_env = "HOIKE_LDAP_PASSWORD"
 tls               = "ldaps"
 
 [ca.signing_key]
-type           = "pkcs11"
-module         = "/usr/lib/libCryptoki2_64.so"
-token_label    = "hoike-partition"
-key_label      = "ocsp-signing"
-pin_env        = "HOIKE_HSM_PIN"
-sig_alg        = "ecdsa-p256"
-responder_cert = "/etc/hoike/ocsp-signing.pem"
+type        = "pkcs11"
+module      = "/usr/lib/libCryptoki2_64.so"
+token_label = "hoike-partition"
+key_label   = "ocsp-signing"
+pin_env     = "HOIKE_HSM_PIN"
 
 [ca.key_rotation]
 renew_before_days = 7
@@ -338,19 +343,27 @@ hoike validates the configuration at startup (and under `hoike check`) and exits
 
 | Rule | Error (abridged) |
 |------|------------------|
+| Unknown key in any table (`deny_unknown_fields`) — including the removed `storage.max_chain` | *unknown field …* — configs still setting `max_chain` fail to parse |
 | `admin_tls` or `metrics_tls` set on a binary built without `--features tls` | *TLS configured but this binary was built without the tls feature* |
 | `admin_tls` set without `admin_listen` | *admin_tls requires admin_listen; refusing plaintext management fallback* |
 | `metrics_tls` set without `metrics_listen` | *metrics_tls requires metrics_listen* |
 | `gossip.enabled` with a non-empty `peer_keys` | *replace gossip.peer_keys with peer_identities …* |
+| Invalid `gossip.auth_mode` | *gossip.auth_mode must be "required" or "permissive" …* |
+| `gossip` enabled with `auth_mode = "required"` but no `identity_key` | *gossip auth_mode "required" needs gossip.identity_key …* |
 | Empty, reserved, path-bearing, or duplicate `label` | *CA labels must be unique nonempty file names* |
 | `forward_to` not `https://` (and not `forward_insecure` + `http://`) | *forward_to requires https:// (or explicit forward_insecure for http://)* |
+| `forward_ca` unreadable, empty, or malformed — or set with a non-HTTPS `forward_to` | fails startup and `hoike check` |
 | Invalid `sig_alg` | *invalid sig_alg … expected one of: ecdsa-p256, ml-dsa-44, ml-dsa-65, ml-dsa-87* |
 | ML-DSA `sig_alg` with `nonce_policy = "live"` | *nonce_policy=live is not yet supported with … signing* |
+| `seal_key` or `seal_cert` configured without the other | *seal_key and seal_cert must be configured together — a half-configured seal pair is always an error* |
+| Production (file/PKCS#11) `signing_key` without the `seal_key` + `seal_cert` pair | *production signing requires a persistent seal_key and seal_cert pair …* |
 | Invalid `certid_compat` | *invalid certid_compat … expected one of: dual, sha256, sha1* |
 | `max_age_fraction` outside `(0, 1]` | *invalid max_age_fraction … must be in the range (0, 1]* |
 | signer/combined `[[ca]]` missing `source` | *has no source configured, required for … mode* |
 | signer/combined `[[ca]]` missing `signing_key` | *has no signing_key configured, required for … mode* |
 | signer/combined with no `[[ca]]` | *… mode requires at least one [[ca]] with a source* |
+
+Bundle admission adds one more fail-closed rule at load time (startup, hot reload, recovery, `hoike check`, and `hoike import` share a single authenticated admission path): with no seal trust and no `seal_authorizations` configured, bundles are only admitted when `storage.allow_unauthenticated_bundles = true` (structure-only demo admission). Configured trust never downgrades.
 
 ---
 
@@ -367,7 +380,6 @@ max_request = 8192
 [storage]
 bundle_dir = "/var/lib/hoike/bundles"   # Where ahu bundles are read from
 state_db   = "/var/lib/hoike/state"     # Epoch high-water marks — MUST persist across restarts
-max_chain  = 24
 seal_trust_anchors = ["/etc/hoike/trust/producer-ca.pem"]  # Admit only sealed bundles from this CA
 
 [gossip]
@@ -417,11 +429,17 @@ issuer_cert = "/etc/hoike/trust/partner-ca.crt"
 
 ## Environment variables
 
-hoike reads exactly two values from the environment, both secrets that should not be written to the config file:
+hoike reads exactly two config-named values from the environment, both secrets that should not be written to the config file:
 
 | Config key | Environment variable |
 |------------|---------------------|
 | `signing_key.pin_env` | the variable it names, holding the HSM PIN |
 | `source.bind_password_env` | the variable it names, holding the directory bind password |
+
+Serving nodes also honor one process-level environment variable:
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `HOIKE_RELOAD_INTERVAL_SECS` | `15` | Seconds between hot-reload polls of the bundle directory on edge/enclave nodes. See [Edge Mode](edge.md#hot-reload). |
 
 No other configuration key can be set or overridden from the environment. For per-instance settings in containers, template the config file or mount an instance-specific `hoike.toml`.

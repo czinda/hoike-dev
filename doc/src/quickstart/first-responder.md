@@ -16,14 +16,20 @@ max_request = 8192
 
 [storage]
 bundle_dir = "/tmp/hoike-demo/bundles"
-state_db   = "/tmp/hoike-demo/state"
-max_chain  = 24
+state_db   = "/tmp/hoike-demo/state/state.json"
+# Pin the demo seal certificate so the edge authenticates the bundle's
+# CMS seal on admission. Admission is fail-closed: without configured
+# seal trust, the edge refuses to serve the bundle.
+seal_signer_pins = ["/tmp/hoike-demo/seal.crt"]
 
 [[ca]]
 label          = "demo-ca"
 bundle_file    = "/tmp/hoike-demo/bundles/demo-ca.ahu"
 nonce_policy   = "ignore"
-completeness   = "authoritative-complete"
+# The bundle was produced from a CRL, which enumerates revocations but not
+# issuance, so its scope is partial. A serial with no entry is answered
+# with the unsigned `unauthorized` error -- see Revocation Sources.
+completeness   = "partial"
 ```
 
 Set up the directories and move the bundle into place:
@@ -47,19 +53,28 @@ hoike check --config /tmp/hoike-demo/hoike.toml
 This verifies:
 
 - The configuration file parses correctly
-- All referenced bundle files exist and pass seal verification
+- All referenced bundle files exist and pass seal verification under the
+  same admission trust policy (`hoike check` is read-only; it never
+  creates or changes state)
 - The storage directories are accessible
 - Gossip seeds (if configured) are reachable
 
 Fix any reported issues before proceeding.
 
-## 3. Start the responder
+## 3. Initialize state and start the responder
 
-Launch the OCSP responder:
+hoike never creates anti-rollback state implicitly. Initialize the state
+directory once, then launch the OCSP responder:
 
 ```sh
+hoike init-state --config /tmp/hoike-demo/hoike.toml
 hoike serve --config /tmp/hoike-demo/hoike.toml
 ```
+
+`init-state` bootstraps a fresh state directory and refuses to run against
+one that is already initialized (there is no `--force`). `serve` holds an
+exclusive writer lock on the state directory for the life of the process,
+so only one hoike process may write a given state directory at a time.
 
 You should see log output indicating the server is listening on port 2560
 and has loaded the `demo-ca` bundle. The server is now ready to accept
@@ -103,12 +118,23 @@ revocation time from the CRL.
 
 ## 5. Test with hoike query
 
-hoike includes a built-in diagnostic client. Query the responder directly:
+hoike includes a built-in diagnostic client. It takes the CertID preimages
+directly -- the issuer's DER-encoded subject Name and the raw issuer public
+key bytes -- and computes the hashes itself:
 
 ```sh
-# Get the issuer hashes (you'll need these for the query)
-ISSUER_NAME_B64=$(openssl x509 -in /tmp/hoike-demo/ca.crt -outform DER | openssl dgst -sha256 -binary | base64)
-ISSUER_KEY_B64=$(openssl x509 -in /tmp/hoike-demo/ca.crt -noout -pubkey | openssl pkey -pubin -outform DER | tail -c +25 | base64)
+# Issuer name: the certificate's subject, as DER (the second-to-last
+# depth-2 SEQUENCE in the certificate body)
+SUBJ_OFF=$(openssl asn1parse -in /tmp/hoike-demo/ca.crt \
+  | awk '/d=2/ && /cons/ && /SEQUENCE/ {gsub(/:.*/,"",$1); o[n++]=$1} END{print o[n-2]}')
+openssl asn1parse -in /tmp/hoike-demo/ca.crt -strparse "$SUBJ_OFF" \
+  -out /tmp/hoike-demo/issuer-name.der -noout
+ISSUER_NAME_B64=$(base64 -w0 < /tmp/hoike-demo/issuer-name.der)
+
+# Issuer key: the X9.62 uncompressed point -- the trailing 65 bytes of a
+# P-256 SubjectPublicKeyInfo
+ISSUER_KEY_B64=$(openssl x509 -in /tmp/hoike-demo/ca.crt -pubkey -noout \
+  | openssl ec -pubin -outform DER 2>/dev/null | tail -c 65 | base64 -w0)
 
 # Query status of ee1
 SERIAL=$(openssl x509 -in /tmp/hoike-demo/ee1.crt -noout -serial | cut -d= -f2)
@@ -119,15 +145,18 @@ hoike query \
   --issuer-key-b64 "$ISSUER_KEY_B64"
 ```
 
-## 6. Test with curl
+Querying a serial that was never issued (any hex value with no bundle
+entry) returns the unsigned `unauthorized` error: the demo scope is
+partial, so the responder cannot assert anything about a serial it
+cannot see.
 
-OCSP also supports HTTP GET with a base64-encoded request in the URL path.
-For a quick connectivity check:
+## 6. Connectivity checks
 
-```sh
-# Health check (if supported)
-curl -s http://localhost:2560/health
-```
+The OCSP data plane speaks only OCSP -- there is no `/health` endpoint on
+the public port. The queries above are the connectivity check. For
+continuous monitoring, configure the dedicated metrics listener
+(`server.metrics_listen`, Prometheus format on `/metrics`) and watch that
+instead.
 
 ## Understanding the response path
 
@@ -137,7 +166,7 @@ When the edge server receives an OCSP request, it:
    key hash, and serial number)
 2. Looks up the `CertID` in the ahu bundle's sorted index via binary
    search
-3. Returns the pre-signed response bytes directly from the memory-mapped
+3. Returns the pre-signed response bytes directly from the in-memory
    bundle
 
 There is no cryptographic work at request time. The response was fully

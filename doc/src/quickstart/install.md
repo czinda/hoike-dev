@@ -10,7 +10,10 @@ hoike produces two binaries:
 ## Prerequisites
 
 - **Rust 1.85+** (install via [rustup](https://rustup.rs/))
-- A C linker (provided by Xcode CLT on macOS, `build-essential` on Debian/Ubuntu, `gcc` on Fedora/RHEL)
+- A C compiler, CMake, and pkg-config (AWS-LC is used for RSA CRL verification even in builds without TLS)
+  - Debian/Ubuntu: `build-essential cmake pkg-config`
+  - Fedora/RHEL: `gcc cmake pkgconf-pkg-config`
+  - macOS: Xcode CLT plus `brew install cmake pkg-config`
 
 Verify your Rust version:
 
@@ -42,11 +45,11 @@ sudo install -m 755 target/release/hoike /usr/local/bin/
 sudo install -m 755 target/release/ahu /usr/local/bin/
 ```
 
-Verify the installation:
+Verify the installation (a `--version` flag is not implemented yet, so confirm the binaries run and print help):
 
 ```sh
-hoike --version
-ahu --version
+hoike --help
+ahu --help
 ```
 
 ## Container build

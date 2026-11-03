@@ -29,6 +29,11 @@ The edge proxies nonce-bearing requests to the signer for live signing. The sign
 
 Requests **without** a nonce are still served from the local bundle — only nonce-bearing requests are forwarded. This gives you the throughput of pre-signed responses for the common case while satisfying clients that require nonce echo.
 
+No-entry serials are handled by completeness:
+
+- **`completeness = "authoritative-complete"`** — the scope provably covers every certificate the CA issued, so a serial with no stored entry was never issued. The edge forwards the no-entry request to the scope's `forward_to` signer, which synthesizes a signed RFC 6960 `certStatus: unknown` response for it.
+- **`completeness = "partial"`** — the edge cannot prove a serial with no entry was never issued, so the request is answered locally with the unsigned `unauthorized` error.
+
 The `forward_to` URL is **required** when `nonce_policy = "forward"`. It must point to a signer (or combined-mode node) that has the signing keys for this CA.
 
 ### `live`
@@ -39,6 +44,13 @@ nonce_policy = "live"
 ```
 
 Every request is signed fresh, including the client's nonce in the response. This provides the strongest replay protection but the lowest throughput — every request requires a signing operation.
+
+`live` works with an ECDSA signing key in either form:
+
+- **File key** — `[ca.signing_key] type = "file"` with a PKCS#8 ECDSA key.
+- **PKCS#11 HSM key** — `[ca.signing_key] type = "pkcs11"`. Before serving, the HSM key proves ownership of the responder certificate by signing a preflight message that hoike verifies under the certificate's public key; the private key never leaves the module.
+
+ML-DSA keys remain unsupported for live signing (`nonce_policy = "live"` with an ML-DSA `sig_alg` is a startup error).
 
 **`live` is only valid on signer or combined mode.** Configuring `nonce_policy = "live"` on an edge node is a **startup error**, because edge nodes have no signing keys.
 

@@ -24,12 +24,14 @@
 - [Web UI](./operator/webui.md)
 - [Air-Gap Deployments](./operator/air-gap.md)
 - [Anti-Rollback Protection](./operator/anti-rollback.md)
+- [Upgrading](./operator/upgrading.md)
 
 # Security
 
 - [Hardening Guide](./security/hardening.md)
 - [Audit Logging](./security/audit-logging.md)
 - [Admin API and RBAC](./security/admin-api.md)
+- [October 2026 Security Audit](./security/audit-2026-10.md)
 
 # Architecture
 

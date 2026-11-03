@@ -1,15 +1,16 @@
 # Response Production
 
 The signer produces OCSP responses in batch, packaging them into ahu
-bundles. This page covers the batch model, timestamp rules, dual CertID
-support, status outcomes, and post-quantum sizing.
+bundles. This page covers the batch model, live signing, timestamp rules,
+dual CertID support, status outcomes, and post-quantum sizing.
 
 ## Batch model
 
 hoike signs responses in bulk rather than on-demand. This design has
 several consequences:
 
-- **No signing at request time.** The edge serves pre-signed bytes.
+- **No signing at request time on the batch path.** The edge serves
+  pre-signed bytes. (The live nonce path below is the one exception.)
 - **Responses are valid for a window.** Each response has a `thisUpdate`
   and `nextUpdate` defining its validity period.
 - **Revocation propagation has latency.** A revoked certificate is not
@@ -51,10 +52,37 @@ increasing integer that:
 
 1. Uniquely identifies a generation of the working set
 2. Enables anti-rollback checks at the edge
-3. Links to the parent generation via `parent_hash`
+3. Links to the parent generation via `prev_manifest_digest`
 
 The signer must persist the current epoch across restarts. Reusing an
 epoch is a fatal error.
+
+### Live signing and the signed unknown
+
+Nonce-bearing requests are the one case where a response cannot be
+pre-signed: the nonce did not exist when the batch ran. Under
+`nonce_policy = "live"`, a signer or combined node builds a fresh
+`SingleResponse` carrying the client's nonce and signs it at request time,
+using the status extracted from the stored pre-signed response for that
+serial. Live signing works with ECDSA file keys and PKCS#11 HSM signing
+keys. Edges cannot sign; with `nonce_policy = "forward"` they relay
+nonce-bearing requests to the CA's `forward_to` signer instead.
+
+The **signed unknown** extends live signing to serials with no stored
+entry. When the CA's scope is `authoritative-complete`, the bundle asserts
+the full issued population, so a serial with no entry was never issued.
+If the request carries a nonce, the signer produces a freshly signed
+RFC 6960 `certStatus: unknown` response on demand. Three conditions must
+hold:
+
+1. The live path -- signer or combined mode (an edge forwards instead)
+2. An `authoritative-complete` scope for the CA
+3. A nonce in the request
+
+A keyless edge with `nonce_policy = "forward"` forwards these no-entry
+nonce requests to the scope's `forward_to` signer, which synthesizes the
+signed unknown. Partial scopes never produce it: a partial bundle cannot
+prove a serial was never issued.
 
 ## Timestamp rules
 
@@ -129,7 +157,7 @@ response bytes are returned.
 
 ## Status outcomes
 
-The signer produces three types of status:
+The signer produces four types of status:
 
 ### Good
 
@@ -155,14 +183,34 @@ Revocation reasons are taken directly from the CRL entry's `reasonCode`
 extension. If no reason is present, the reason is omitted (as per
 RFC 6960).
 
+### Unknown
+
+`unknown` is produced in one place: the [signed unknown](#live-signing-and-the-signed-unknown)
+on the live path. When a CA's scope is `authoritative-complete`, a serial with
+no stored entry is provably never-issued. If the request carries a nonce, the
+signer produces a freshly signed RFC 6960 `certStatus: unknown` response on
+demand (an edge with `nonce_policy = "forward"` forwards the request to the
+signer, which synthesizes it).
+
+Bundles themselves carry only `good` and `revoked` entries. Directory
+certificates the CA marked `INVALID` or `EXPIRED` are excluded from the
+snapshot entirely -- they leave no entry, and requests for them are answered
+like any other no-entry serial (see [Unauthorized](#unauthorized) below).
+
+```
+certStatus: unknown
+```
+
 ### Unauthorized
 
-The serial number is not in the working set. This means hoike does not
-have a signed response for this certificate. This occurs when:
-
-- The serial was never issued by this CA
-- The serial is not in the good-serials list and not in the CRL
-- The bundle does not cover this CA's issuer key hash
+`unauthorized` is a response status, not a certificate status: the unsigned
+error returned in two cases. First, an out-of-scope CertID -- a request whose
+issuer name and key hashes match no configured CA scope; the responder has no
+authority for that issuer, and RFC 9919 Section 3.2.3 makes the unsigned
+error the correct answer. Second, a serial with no entry in the loaded
+bundle: a partial scope cannot prove anything about a serial it cannot see,
+and a pre-signed bundle cannot answer a nonce, so the responder refuses to
+assert and returns the unsigned error rather than fabricating a `good`.
 
 ```
 OCSPResponse.responseStatus: unauthorized (6)
@@ -176,13 +224,16 @@ The `produce_dual_bundle` function takes two signers (classical + post-quantum) 
 
 ```sh
 hoike sign \
-  --ca my-ca --crl ca.crl \
+  --ca my-ca --crl ca.crl --issuer ca.crt \
   --signing-key ecdsa.key --sig-alg ecdsa-p256 \
   --dual-alg ml-dsa-87 --pq-signing-key ml-dsa.key \
+  --seal-key seal.key --seal-cert seal.crt \
   -o dual.ahu
 ```
 
-The CMS seal on a dual-algorithm bundle can use either ECDSA or ML-DSA, configured via `--seal-key`.
+The CMS seal on a dual-algorithm bundle is configured via the paired
+`--seal-key` / `--seal-cert` flags and must use a key distinct from either
+signing key.
 
 ## ResponderID
 

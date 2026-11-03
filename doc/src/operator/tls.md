@@ -72,7 +72,7 @@ forward_to   = "https://ocsp-signer.example.com:2560"
 
 `forward_insecure = true` permits an `http://` target for lab use. It is logged at startup and must never be set in production.
 
-> **`forward_ca` caveat.** The `forward_ca` key is accepted but not yet wired into the outbound client. The forward target is validated against the **system trust store**, so a private CA must be installed system-wide (for example under `/etc/pki/ca-trust/source/anchors/` followed by `update-ca-trust`). `hoike check` prints the same caveat.
+> **`forward_ca`.** When set, the `forward_ca` PEM bundle becomes the forwarding client's **only** root set for that CA's `forward_to` target: the bundled WebPKI roots are disabled, while hostname and validity checks are kept. The bundle must parse to at least one certificate — an unreadable, empty, or malformed file fails startup and `hoike check`, as does combining `forward_ca` with a non-HTTPS `forward_to`. Without `forward_ca`, the target is validated against the WebPKI roots bundled with hoike — **never** the operating-system trust store, so there is no need to install a private CA system-wide.
 
 ## LDAPS and StartTLS for syncrepl
 
@@ -99,7 +99,8 @@ With `starttls`, the upgrade completes **before** the bind, so the bind password
 | `admin_listen` unset while `server.admin` is configured | warning: admin API on the plaintext OCSP port |
 | `forward_to` is `http://` without `forward_insecure` | error |
 | `forward_insecure = true` | warning, logged on every start |
-| `forward_ca` set | warning: not applied; install the CA system-wide |
+| `forward_ca` unreadable, empty, or malformed | error: fails startup and `hoike check` |
+| `forward_ca` set with a non-HTTPS `forward_to` | error |
 | `dogtag-sync` with `tls = "none"` | warning: bind credentials cross in cleartext |
 
 ## Certificate requirements

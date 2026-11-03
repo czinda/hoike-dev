@@ -40,11 +40,12 @@ node_name    = "edge-01"
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `enabled` | bool | `true` | Enable or disable gossip. Set to `false` for air-gap deployments. |
+| `enabled` | bool | `false` | Enable or disable gossip. Set to `false` for air-gap deployments. |
 | `bind` | string | `"0.0.0.0:7946"` | Address and port to bind the gossip listener. |
 | `seeds` | array of strings | `[]` | Initial contact points for joining the gossip mesh. |
-| `identity_key` | path | — | Path to the Ed25519 key used to sign gossip messages. |
-| `peer_identities` | table | `{}` | Map of node names to Ed25519 public key paths for broadcast verification. |
+| `auth_mode` | string | `"required"` | Broadcast authentication policy: `"required"` (default) or `"permissive"` (rollout). Any other value is a startup error. |
+| `identity_key` | path | — | Path to this node's Ed25519 PKCS#8 private key, used to sign outbound broadcasts. Required when gossip is enabled with `auth_mode = "required"`. |
+| `peer_identities` | table | `{}` | Map of node names to Ed25519 public key paths (named-origin authorization). |
 | `node_name` | string | hostname | Human-readable, unique identifier for this node in the mesh. |
 
 ## Seed Configuration
@@ -66,11 +67,18 @@ seeds = [
 ]
 ```
 
-## Identity Key
+## Authentication
 
-Every gossip participant signs its messages with an Ed25519 key. This prevents spoofed announcements from unauthorized nodes.
+Gossip broadcasts are authenticated with Ed25519 signatures under an explicit policy, `auth_mode`:
 
-Generate a key:
+- **`auth_mode = "required"` (default)** — unsigned, unknown, or forged broadcasts are dropped before re-propagation. Every enabled node must configure an `identity_key`, and each authorized origin must appear in `peer_identities`.
+- **`auth_mode = "permissive"`** — the rollout mode. Unsigned legacy broadcasts are still accepted, while signed ones are verified and unknown or forged signatures are rejected.
+
+Any other `auth_mode` value fails configuration. The legacy `peer_keys` array (an unbound key list) is **rejected**: a non-empty value fails startup with an error directing you to migrate to `peer_identities`.
+
+### Identity key
+
+Each node signs its generation and urgent-revocation broadcasts with an Ed25519 PKCS#8 private key configured as `identity_key`. Generate one per node:
 
 ```bash
 hoike keygen --gossip -o /etc/hoike/gossip.key
@@ -79,9 +87,9 @@ chmod 600 /etc/hoike/gossip.key
 
 The key file contains the Ed25519 private key. Protect it with appropriate file permissions.
 
-### Peer Identities
+### Peer identities
 
-The `peer_identities` table maps each peer's `node_name` to the path of its Ed25519 public key file:
+The `peer_identities` table maps each peer's `node_name` to the path of its Ed25519 public key file, authorizing that origin by name:
 
 ```toml
 [gossip.peer_identities]
@@ -89,14 +97,26 @@ The `peer_identities` table maps each peer's `node_name` to the path of its Ed25
 "signer-1" = "/etc/hoike/gossip/signer-1.pub"
 ```
 
-**Enforcement modes:**
-
-- **Enforcing mode** (non-empty `peer_identities`): Unsigned, forged, or misattributed generation announcements and urgent-revocation broadcasts are dropped before re-propagation.
-- **Permissive mode** (empty `peer_identities`): Unsigned broadcasts are accepted for backward compatibility with a mixed or unconfigured fleet.
-
-> **Note:** A non-empty legacy `peer_keys` array will now cause startup to fail with an error directing you to migrate to `peer_identities`.
-
 The corresponding public keys must be distributed to all nodes that will verify broadcasts from that peer.
+
+### Rolling out authentication
+
+Move a mixed fleet to `auth_mode = "required"` in four steps:
+
+1. **Provision identities** — generate a key pair per node and complete the `peer_identities` map fleet-wide (every node lists every other participant).
+2. **Switch to permissive** — set `auth_mode = "permissive"` fleet-wide. Unsigned legacy broadcasts are accepted, signed ones verified, unknown or forged signatures rejected.
+3. **Configure `identity_key` everywhere** — once every node signs its broadcasts, permissive mode verifies them all.
+4. **Switch to required** — set `auth_mode = "required"` fleet-wide. Unsigned and unknown broadcasts are now dropped.
+
+Mixed fleets stay interoperable at the frame level during the rollout (a one-byte signed-frame wire tag distinguishes the formats).
+
+`hoike check` reports the effective gossip auth mode for the configured file.
+
+### What authentication does not cover
+
+- **SWIM liveness is not authenticated.** Pings, indirect probes, and membership updates travel unsigned; only generation and urgent-revocation broadcasts are signed.
+- **Gossip carries broadcasts only** — no bundle bytes and no confidentiality. Nothing on the gossip channel is encrypted.
+- **Announcements are hints, not data.** They now carry the bundle **manifest digest** (not just the index digest), so metadata-only generation changes are distinguishable. Every pulled bundle is still verified independently via its CMS seal and anti-rollback checks.
 
 ## Node Name
 
@@ -120,7 +140,7 @@ Failed nodes stop receiving generation announcements and urgent revocation notic
 
 The security boundaries are:
 
-- **Generation announcements and urgent-revocation broadcasts are signed** with the sender's `identity_key`. In enforcing mode (non-empty `peer_identities`), unsigned or incorrectly signed broadcasts are dropped before re-propagation. SWIM liveness traffic (pings/acks) is not authenticated.
+- **Generation announcements and urgent-revocation broadcasts are signed** with the sender's `identity_key`. With `auth_mode = "required"` (the default), unsigned or incorrectly signed broadcasts are dropped before re-propagation. SWIM liveness traffic (pings/acks) is not authenticated.
 - **Bundle validity is verified independently** via CMS seal and epoch chain — not via gossip trust. A gossip announcement only says "a new generation exists"; the edge independently verifies every bundle it loads.
 - **A compromised gossip node cannot inject bad responses.** The worst it can do is trigger unnecessary pull attempts. The pulled bundle must still pass CMS seal verification and anti-rollback checks.
 - **Gossip cannot suppress bundles.** Edges also poll on a schedule, so even if gossip is disrupted, bundles are eventually loaded.

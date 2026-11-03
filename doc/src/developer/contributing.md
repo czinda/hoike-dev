@@ -102,7 +102,8 @@ No crate may depend on a crate above it in this graph. Specifically:
 ### No signing at request time
 
 The edge path (hoike-server) must never perform cryptographic signing
-operations. It reads pre-signed bytes from memory-mapped bundles and writes
+operations. It reads pre-signed bytes from the loaded in-memory bundle and
+writes
 them directly to the response. If you find yourself importing signing
 functions into hoike-server, the design is wrong.
 
@@ -212,7 +213,7 @@ Before submitting a PR, verify:
 
 - [ ] `cargo fmt --check` passes
 - [ ] `cargo clippy --workspace` has no warnings
-- [ ] `cargo test --workspace` passes (all 81+ tests)
+- [ ] `cargo test --workspace` passes (the full workspace test suite)
 - [ ] `cargo doc --workspace --no-deps` builds without warnings
 - [ ] New public APIs have doc comments
 - [ ] New behavior has test coverage
@@ -225,7 +226,8 @@ Before submitting a PR, verify:
 File issues on the [GitHub issue tracker](https://github.com/czinda/hoike/issues).
 Include:
 
-- hoike version (`hoike --version`)
+- hoike version (the release tag or source commit you built from; a
+  `--version` flag is not implemented yet)
 - Rust version (`rustc --version`)
 - Operating system
 - Steps to reproduce

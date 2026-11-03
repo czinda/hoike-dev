@@ -551,9 +551,11 @@
         <div class="feature-card">
           <h3>HSM Signing (PKCS#11)</h3>
           <p>OCSP responses signed via hardware security modules through
-             <code>cryptoki</code>. Tested with Kryoptic; documented paths for
-             Thales Luna, Entrust nShield, Utimaco, and FutureX. Interactive PIN
-             prompt for production.</p>
+             <code>cryptoki</code> &mdash; batch signing and live nonce signing
+             (<code>nonce_policy = "live"</code>) with PKCS#11 keys; the private
+             key never leaves the module. Tested with Kryoptic; documented paths
+             for Thales Luna, Entrust nShield, Utimaco, and FutureX. Interactive
+             PIN prompt for production.</p>
         </div>
         <div class="feature-card">
           <h3>Air-Gap Ready</h3>
@@ -568,10 +570,23 @@
              Stale-generation alerts before <code>nextUpdate</code> expires.</p>
         </div>
         <div class="feature-card">
+          <h3>Hot-Reloadable Edges</h3>
+          <p>Serving nodes re-read the bundle directory on a poll loop
+             (<code>HOIKE_RELOAD_INTERVAL_SECS</code>, default 15s) with
+             anti-rollback checks and atomic swap. A failed reload keeps the
+             previous generation serving.</p>
+        </div>
+        <div class="feature-card">
           <h3>SWIM Gossip</h3>
           <p>Edge fleet coordination via the SWIM protocol (foca). Generation
              announcements, membership tracking, and urgent revocation notices.
              Gossip is never authoritative for status.</p>
+        </div>
+        <div class="feature-card">
+          <h3>Authenticated Gossip</h3>
+          <p>Ed25519-signed generation announcements with per-node identity
+             authorization (<code>auth_mode</code> required/permissive) and a
+             documented fleet rollout.</p>
         </div>
         <div class="feature-card">
           <h3>Key Rotation</h3>
@@ -587,6 +602,13 @@
              Configuring <code>live</code> on an edge is a startup error.</p>
         </div>
         <div class="feature-card">
+          <h3>Signed Unknown</h3>
+          <p>Never-issued serials get freshly signed RFC 6960
+             <code>unknown</code> responses when the CA scope is
+             <code>authoritative-complete</code> and the request carries a
+             nonce. Keyless edges forward such requests to the signer.</p>
+        </div>
+        <div class="feature-card">
           <h3>Dual CertID</h3>
           <p>One <code>BasicOCSPResponse</code> carries both SHA-1 and SHA-256
              <code>CertID</code> entries per RFC 9919. One signature, one payload,
@@ -595,7 +617,8 @@
         <div class="feature-card">
           <h3>389 DS Syncrepl</h3>
           <p>RFC 4533 Content Synchronization source for Dogtag certificate databases.
-             Persistent sync cookie across signer cycles. Provides positive issuance
+             Persistent sync cookie across signer cycles, with a full-poll fallback
+             when the directory rejects the sync control. Provides positive issuance
              data for <code>authoritative-complete</code> bundles.</p>
         </div>
         <div class="feature-card">
@@ -605,16 +628,24 @@
              day needed for PQC migration.</p>
         </div>
         <div class="feature-card">
-          <h3>Zero-Copy Serving</h3>
-          <p><code>MmapBundle</code> uses MAP_PRIVATE for large-scale edge serving.
-             At 100M entries (~45 GB): ~200 MB RSS, sub-100ms startup. Binary search
-             directly on the mmap'd index &mdash; no heap allocation per lookup.</p>
+          <h3>Zero-Copy Library</h3>
+          <p>Serving nodes load full bundles into memory and answer lookups by
+             binary search over the sorted index. For custom integrations, the
+             ahu library offers <code>MmapBundle</code> zero-copy mmap
+             access.</p>
         </div>
         <div class="feature-card">
           <h3>Admin API &amp; Web UI</h3>
           <p>REST admin API with RBAC (Administrator / Operator / Viewer). React +
              PatternFly 6 dashboard for bundle management, CA status, signing, and
              OCSP query. Embeddable in the binary via <code>--features embed-webui</code>.</p>
+        </div>
+        <div class="feature-card">
+          <h3>Audit-Hardened</h3>
+          <p>October 2026 promise-to-code audit closed all 12 findings:
+             fail-closed bundle admission, seal/OCSP key separation, exclusive
+             state writers. <code>cargo audit</code> reports zero
+             vulnerabilities.</p>
         </div>
       </div>
     </div>
@@ -650,7 +681,7 @@
 <span class="log">scope     : enterprise-ca (partial)</span>
 <span class="log">algorithm : ecdsa-p256</span>
 <span class="log">entries   : 84 (42 good, 3 revoked, dual CertID)</span>
-<span class="log">size      : 48.2 KB (zstd compressed)</span>
+<span class="log">size      : 48.2 KB</span>
 
 <span class="prompt">$</span> <span class="cmd">hoike serve</span> <span class="flag">--config hoike.toml</span>
 
@@ -661,7 +692,7 @@
 <span class="prompt">$</span> <span class="cmd">hoike query</span> <span class="flag">--url http://localhost:2560 --serial 0A1B2C \</span>
     <span class="flag">--issuer-name-b64 ... --issuer-key-b64 ...</span>
 
-<span class="info"> INFO</span> <span class="log">hoike::query: status=good, sig=ecdsa-p256, nextUpdate=2026-09-01</span></code></div>
+<span class="info"> INFO</span> <span class="log">hoike::query: status=good, sig=ecdsa-p256, nextUpdate=2026-12-15</span></code></div>
       </div>
       <a href="/doc/quickstart/first-bundle.html" class="terminal-link">Read the full quickstart guide &rarr;</a>
     </div>
@@ -672,8 +703,8 @@
   <!-- Stats Callout -->
   <section class="stats-callout">
     <div class="container">
-      <div class="stats-number">6</div>
-      <p class="stats-label">RFCs and standards. 131 tests. 20 conformance assertions.</p>
+      <div class="stats-number">8</div>
+      <p class="stats-label">RFCs and standards. 311 tests. 20 conformance assertions.</p>
       <p class="stats-desc">
         Full OCSP protocol with pre-signed response production, HTTP caching profile,
         nonce handling rules, and AIA discovery. Every protocol claim validated by

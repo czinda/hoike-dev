@@ -32,13 +32,18 @@ these concerns:
 reads revocation data from CRLs or Dogtag's 389 DS via RFC 4533 syncrepl,
 and batch-produces pre-signed OCSP responses packaged into CMS-sealed
 **ahu bundles**. Signers also handle nonce-bearing requests by signing
-fresh responses on demand (`nonce_policy = "live"`). The signer can run in
-a hardened enclave, an HSM-attached host, or an air-gapped machine.
+fresh responses on demand (`nonce_policy = "live"`), including freshly
+signed `unknown` responses for never-issued serials when the CA's scope
+is authoritative-complete. The signer can run in a hardened enclave, an
+HSM-attached host, or an air-gapped machine.
 
 **Edge** -- receives ahu bundles (via gossip, push, or manual import) and
 serves the pre-signed responses to OCSP clients. Edge nodes are stateless
-and keyless. They memory-map the bundle file and return the appropriate
-pre-signed bytes with zero cryptographic work at request time.
+and keyless. They load the bundle into memory and return the appropriate
+pre-signed bytes with zero cryptographic work at request time. Serving
+nodes hot-reload the bundle directory on a poll loop (anti-rollback
+checks, atomic swap); a failed reload keeps the previous generation
+serving.
 
 This split means you can run dozens of edge nodes without ever exposing
 signing keys to the network, and each edge node serves responses at
@@ -55,10 +60,10 @@ OCSP responses for efficient serving. Each bundle contains:
   responses
 - A cryptographic **seal** binding the manifest and all entries together
 
-Bundles support zero-copy serving via `mmap`, meaning the edge process maps
-the file into memory and serves response bytes directly without
-deserialization. The `ahu` CLI tool lets you inspect, verify, diff, and
-apply delta updates to bundles.
+Bundles support zero-copy access via `mmap` (the `ahu` crate's
+`MmapBundle`), so response bytes can be served directly from a mapped
+file without deserialization. The `ahu` CLI tool lets you inspect,
+verify, diff, and apply delta updates to bundles.
 
 ## Workspace overview
 
@@ -92,14 +97,14 @@ hoike implements or targets these RFCs:
 
 ## Technology stack
 
-- **Language**: Rust 1.85+
+- **Language**: Rust 1.85+ (building hoike-gossip practically needs
+  rustc 1.88 for foca; CI and development pin 1.97)
 - **HTTP server**: axum 0.8 on tokio
 - **Cryptography**: RustCrypto (`der`, `x509-cert`, `x509-ocsp`, `cms`)
 - **HSM**: PKCS#11 via `cryptoki` (Luna, Entrust, Utimaco, FutureX, Kryoptic)
 - **Post-quantum**: ML-DSA-44/65/87 via `ml-dsa`
 - **Serialization**: ciborium (CBOR)
 - **Memory mapping**: memmap2
-- **Compression**: zstd
 - **Gossip**: foca (SWIM protocol)
 
 ## What's next

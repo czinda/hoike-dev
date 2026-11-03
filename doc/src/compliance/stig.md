@@ -26,7 +26,7 @@ hoike is designed to be deployed on a host that is itself STIG-compliant — Red
 | Session termination on logout | `DELETE /session` invalidates the token |
 | Role-based access | Administrator, Operator, Viewer enforced on every admin route |
 | Certificate expiry notification | Key-rotation monitor warns before `responder_cert` expiry |
-| Third-party component tracking | Locked dependency set with `cargo audit` in CI |
+| Third-party component tracking | Locked dependency set with `cargo audit` in CI; the audit currently reports zero vulnerabilities (one non-fatal warning: `rustls-pemfile` unmaintained) |
 
 ## Met by configuration
 
@@ -56,7 +56,7 @@ hoike is designed to be deployed on a host that is itself STIG-compliant — Red
 | Signed release artifacts and images | Open (SHA-256 checksums only) | Build from source in the organization's pipeline and sign there |
 | Application reports its version | Open | Record the deployed image digest in the CMDB |
 
-All items in this table are scheduled; see the roadmap in the repository's `docs/compliance/` directory.
+All items in this table are scheduled; see the remediation ledgers in the [repository's `docs/` directory](https://github.com/czinda/hoike/tree/main/docs).
 
 ## Evidence to collect for a checklist
 

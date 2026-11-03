@@ -1,8 +1,8 @@
 # ahu CLI Reference
 
 The `ahu` binary is a standalone tool for working with ahu bundle files.
-It does not require a running hoike server or any configuration. All
-operations are read-only except `apply`.
+It does not require a running hoike server. All operations are read-only
+except `apply`.
 
 ## Global options
 
@@ -12,7 +12,6 @@ ahu [OPTIONS] <COMMAND>
 
 | Option | Description |
 |--------|-------------|
-| `--version` | Print version information |
 | `--help` | Print help |
 
 ---
@@ -57,10 +56,10 @@ ahu inspect /var/lib/hoike/bundles/enterprise.ahu
 
 ## ahu verify
 
-Verify the seal, digests, and sort order of a bundle.
+Authenticate a bundle against explicit trust, or check its structure only.
 
 ```
-ahu verify <FILE> [OPTIONS]
+ahu verify <FILE> (--config <PATH> | --structure-only) [OPTIONS]
 ```
 
 ### Arguments
@@ -73,33 +72,41 @@ ahu verify <FILE> [OPTIONS]
 
 | Flag | Required | Default | Description |
 |------|----------|---------|-------------|
-| `--entries` | No | false | Also verify each individual entry's OCSP response signature |
+| `--config <PATH>` | One of the two modes | -- | Config file with the seal trust and scope authorizations to authenticate against |
+| `--structure-only` | One of the two modes | false | Check structure and digests only; authenticity is not checked |
+| `--entries` | No | false | Also check each entry's OCSP signature with the keys embedded in the responses (requires `--config`) |
 
 ### Description
 
-Performs integrity verification of the bundle:
+Exactly one verification mode is required -- a bare `ahu verify FILE`
+fails rather than defaulting. (An earlier version reported success
+without verifying the seal at all, which is why the mode is now explicit.)
 
-1. **Seal verification** -- checks the cryptographic seal over the entire
-   bundle, confirming it has not been modified since signing
-2. **Digest verification** -- recomputes content digests and compares
-   against the manifest
-3. **Sort order** -- confirms the index entries are in sorted order
-   (required for binary search at serving time)
-
-With `--entries`, additionally verifies that each individual OCSP response
-is properly signed and well-formed. This is more thorough but takes longer
-on large bundles.
+- **`--config <PATH>`** (authenticated): the CMS seal must verify and the
+  signer certificate must chain to the locally configured trust -- a
+  chain carried inside the bundle is never sufficient on its own.
+  Structure, digests, and index sort order are checked as well.
+- **`--structure-only`**: structural integrity only -- header, manifest
+  digests against the index and data sections, and sort order.
+  Authenticity is not checked.
+- **`--entries`**: additionally verifies each individual OCSP response
+  signature using the responder keys embedded in the responses (not
+  responder-chain trust). More thorough but takes longer on large
+  bundles.
 
 Exit code 0 on success, non-zero on any verification failure.
 
 ### Example
 
 ```sh
-# Quick verification (seal + digests + sort order)
-ahu verify enterprise.ahu
+# Authenticated verification
+ahu verify enterprise.ahu --config /etc/hoike/hoike.toml
+
+# Structure and digests only (no trust)
+ahu verify enterprise.ahu --structure-only
 
 # Full verification including individual entries
-ahu verify enterprise.ahu --entries
+ahu verify enterprise.ahu --config /etc/hoike/hoike.toml --entries
 ```
 
 ---
@@ -109,7 +116,7 @@ ahu verify enterprise.ahu --entries
 Extract a single pre-signed OCSP response by its CertID entry key.
 
 ```
-ahu extract <FILE> --certid <HEX>
+ahu extract <FILE> --certid <HEX> [-o <FILE>]
 ```
 
 ### Arguments
@@ -122,27 +129,28 @@ ahu extract <FILE> --certid <HEX>
 
 | Flag | Required | Default | Description |
 |------|----------|---------|-------------|
-| `--certid <HEX>` | Yes | -- | Hex-encoded CertID to look up |
+| `--certid <HEX>` | Yes | -- | Hex-encoded entry key (SHA-256 of the DER CertID, 64 hex chars) |
+| `-o <FILE>` | No | stdout (hex) | Output file for the raw DER response |
 
 ### Description
 
-Performs a binary search of the bundle's sorted index for the given CertID
-and writes the matching pre-signed OCSP response to stdout as DER-encoded
-bytes.
+Performs a binary search of the bundle's sorted index for the given entry
+key and writes the matching pre-signed OCSP response to stdout as hex, or
+to a file as raw DER bytes with `-o`.
 
-The CertID is the concatenation of the issuer name hash, issuer key hash,
-and serial number that uniquely identifies a certificate in an OCSP
-request. Use `ahu inspect` to see available entries.
+The entry key is the SHA-256 of the DER-encoded CertID (see
+[ahu Bundle Format](../architecture/ahu-format.md)). Use `ahu inspect` to
+see available entries.
 
-Returns exit code 0 if found, non-zero if the CertID is not present in the
-bundle.
+Returns exit code 0 if found, non-zero if the entry key is not present in
+the bundle.
 
 ### Example
 
 ```sh
-# Extract a response and save to file
+# Extract a response and save it as DER
 ahu extract enterprise.ahu \
-  --certid 3a7f2b... > response.der
+  --certid 3a7f2b... -o response.der
 
 # Decode the extracted response with OpenSSL
 openssl ocsp -respin response.der -resp_text
@@ -193,7 +201,7 @@ Apply one or more delta bundles to a base bundle, producing a new combined
 bundle.
 
 ```
-ahu apply <BASE> <DELTAS>... -o <OUT>
+ahu apply <BASE> <DELTAS>... -o <OUT> [OPTIONS]
 ```
 
 ### Arguments
@@ -208,6 +216,9 @@ ahu apply <BASE> <DELTAS>... -o <OUT>
 | Flag | Required | Default | Description |
 |------|----------|---------|-------------|
 | `-o <OUT>` | Yes | -- | Output path for the resulting bundle |
+| `--seal-key <FILE>` | No | -- | P-256 PKCS#8 seal key; omit to produce an unsigned intermediate |
+| `--seal-cert <FILE>` | No | -- | PEM or DER certificate matching `--seal-key` |
+| `--input-signer-pin <FILE>` | No | -- | Trusted input signer certificate (repeat for multiple signers) |
 
 ### Description
 
@@ -217,25 +228,34 @@ bundle each time, the signer can produce small deltas containing only the
 changed entries.
 
 Deltas are applied in the order specified on the command line. The
-resulting bundle is a complete, self-contained ahu file that can be served
-directly.
+resulting bundle is a complete, self-contained ahu file.
+
+By default the output is an **unsigned intermediate bundle** -- fine for
+inspection, but not installable on a serving node. Passing `--seal-key`
+together with `--seal-cert` and at least one `--input-signer-pin` (the
+three are required as a set) produces an authenticated, sealed result
+suitable for installation.
 
 The output bundle:
 
 - Contains all entries from the base, with additions and modifications
   from the deltas applied
-- Has a new seal computed over the merged content
+- Is sealed over the merged content when seal material is provided;
+  otherwise unsigned
 - Carries the epoch from the last delta applied
 
 ### Example
 
 ```sh
-# Apply a single delta
+# Apply a single delta (unsigned intermediate)
 ahu apply base.ahu delta-42.ahu -o merged.ahu
 
-# Apply multiple deltas in sequence
-ahu apply base.ahu delta-42.ahu delta-43.ahu -o merged.ahu
+# Apply multiple deltas in sequence, then seal the result for installation
+ahu apply base.ahu delta-42.ahu delta-43.ahu \
+  --seal-key seal.key --seal-cert seal.crt \
+  --input-signer-pin signer.crt \
+  -o merged.ahu
 
 # Verify the result
-ahu verify merged.ahu --entries
+ahu verify merged.ahu --config /etc/hoike/hoike.toml
 ```

@@ -37,11 +37,11 @@ The signed response window is derived from the source, never the other way round
 
 ### Why a CRL is always `partial`
 
-A CRL enumerates revocations; it says nothing about which serials were ever issued. hoike therefore cannot distinguish "issued and good" from "never issued" and marks CRL-derived bundles `completeness = "partial"`. Unknown serials receive an `unknown` response, never `good`. Do not set `authoritative-complete` on a CRL source; the signer refuses it.
+A CRL enumerates revocations; it says nothing about which serials were ever issued. hoike therefore cannot distinguish "issued and good" from "never issued" and marks CRL-derived bundles `completeness = "partial"`. A serial with no entry is answered with the unsigned `unauthorized` error at serve time — never a fabricated `good`. Do not set `authoritative-complete` on a CRL source; the signer refuses it.
 
 ## 389 DS syncrepl sources
 
-The `dogtag-sync` source (build with `--features dogtag-sync`) performs RFC 4533 content synchronization against a Dogtag or Red Hat Certificate System certificate repository in 389 Directory Server. The initial refresh loads the full population; later refreshes send a sync cookie and receive only changes.
+The `dogtag-sync` source (build with `--features dogtag-sync`) performs RFC 4533 content synchronization against a Dogtag or Red Hat Certificate System certificate repository in 389 Directory Server. The initial refresh loads the full population; later refreshes send a sync cookie and receive only changes — unless the directory does not support the sync control, in which case the [full-poll fallback](#full-poll-fallback) applies.
 
 ```toml
 [ca.source]
@@ -64,10 +64,12 @@ Grant the bind identity **read-only** access to the repository subtree. hoike re
 |------------------------|--------------|
 | `VALID` | `good` |
 | `REVOKED`, `REVOKED_EXPIRED` | `revoked`, with `revokedOn` as the revocation time and `revReason` as the reason; a missing or unparsable time or reason fails the refresh |
-| `INVALID`, `EXPIRED` | excluded from positive issuance (responders answer `unknown`) |
+| `INVALID`, `EXPIRED` | excluded from the snapshot entirely — no bundle entry is produced, so requests for these serials are answered like any other no-entry serial (the unsigned `unauthorized` error, or the signed unknown under `authoritative-complete` with a nonce) |
 | missing or unrecognised | error — the refresh fails and no bundle is published |
 
 A missing or unknown status is never treated as `good`.
+
+Dogtag stores `revokedOn` as an LDAP GeneralizedTime (`20261030173328Z`), not epoch seconds. Both forms are accepted; any other format fails the refresh.
 
 ### Checkpoints
 
@@ -77,7 +79,19 @@ Operational consequences:
 
 - Size the signer's storage and refresh window for a **full** repository load; it will happen after migration and after any source-identity change.
 - Back up and restore the state directory as one unit; the checkpoint and the anti-rollback marks must stay consistent.
-- Run one signer process per state directory and one active signer per CA. hoike serializes within a process but does not fence competing processes.
+- Run one writer process per state directory — a second process holding the exclusive `.writer.lock` is rejected immediately (see [Anti-Rollback Protection](./anti-rollback.md)) — and one active signer per CA.
+
+### Full-poll fallback
+
+389 Directory Server does not expose the RFC 4533 Sync Request control to external clients: the directory rejects the control with `LDAP rc=12 unavailableCriticalExtension`. When that happens, the dogtag-sync source rebuilds its checkpoint from **one plain search** over the same base and filter, keyed by certificate serial.
+
+| Property | Behaviour under fallback |
+|----------|--------------------------|
+| Completeness | The full issuance view is retained — `authoritative-complete` scopes stay authoritative-complete |
+| Revocation latency | Revocations are reflected within one `batch_interval` |
+| Cost | One full poll per batch instead of incremental sync |
+
+The fallback was verified against Dogtag 11.10 with 389-ds-base 2.4.6. No configuration change is needed — the source detects the rejected control and falls back automatically. Size the directory bind and search load accordingly: with a 3600-second `batch_interval`, every batch performs one full search over the repository subtree.
 
 ### Pruning expired entries (`archive_cutoff_secs`)
 
@@ -101,7 +115,7 @@ label        = "enterprise-ca"
 completeness = "authoritative-complete"
 ```
 
-With this setting a serial that is absent from the population is answered `good`-less — the responder returns `unknown` — but the bundle's manifest asserts that the population is complete, which downstream tooling can use to treat `unknown` as "not issued". The assertion is only made when a refresh **succeeds**; a failed or partial refresh keeps the previous generation and its completeness claim. Set it only when the bind identity's scope, base DN, and filter demonstrably cover every certificate the CA issues.
+With this setting a serial that is absent from the population is provably never issued. A nonce-bearing request for such a serial gets a freshly signed RFC 6960 `certStatus: unknown` response — on the live path directly, or via a forwarding edge — which downstream tooling can treat as "not issued" because the bundle's manifest asserts that the population is complete. Without a nonce the provable answer degrades to the unsigned `unauthorized` error: a pre-signed bundle cannot carry a nonce. The completeness assertion is only made when a refresh **succeeds**; a failed or partial refresh keeps the previous generation and its completeness claim. Set it only when the bind identity's scope, base DN, and filter demonstrably cover every certificate the CA issues.
 
 ## Migration from 0.1.x
 

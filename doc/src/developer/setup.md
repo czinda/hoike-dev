@@ -7,8 +7,8 @@ source.
 
 | Requirement | Version | Notes |
 |-------------|---------|-------|
-| Rust | 1.85+ | Edition 2024. Install via [rustup](https://rustup.rs/). |
-| C linker | Any | Xcode CLT (macOS), `build-essential` (Debian/Ubuntu), `gcc` (Fedora/RHEL) |
+| Rust | 1.85+ (source floor) | Edition 2024. Install via [rustup](https://rustup.rs/). Building `hoike-gossip` needs rustc ≥ 1.88 in practice (foca 2.0.0 enforces its declared requirement); the repository pins the dev/CI toolchain at 1.97 via `rust-toolchain.toml`, which rustup picks up automatically. |
+| C compiler, CMake, pkg-config | Any | AWS-LC is used for RSA CRL verification even in builds without TLS. Debian/Ubuntu: `build-essential cmake pkg-config`; Fedora/RHEL: `gcc cmake pkgconf-pkg-config`; macOS: Xcode CLT plus Homebrew `cmake pkg-config`. |
 | OpenSSL | 3.x | For test certificate generation only |
 | Git | 2.x | For cloning |
 

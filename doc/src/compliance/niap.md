@@ -1,6 +1,6 @@
 # NIAP Common Criteria Status
 
-**hoike has not been evaluated under the Common Criteria and holds no NIAP certificate.** The project maintains draft Security Targets against three NIAP documents so that the gap between the code and a certifiable posture is explicit and tracked. This page summarizes that status for deployers; the engineering detail lives in the repository under `docs/compliance/`.
+**hoike has not been evaluated under the Common Criteria and holds no NIAP certificate.** The project maintains draft Security Targets against three NIAP documents so that the gap between the code and a certifiable posture is explicit and tracked. This page summarizes that status for deployers; the engineering detail lives in the repository's Security Target package, [docs/security-target/](https://github.com/czinda/hoike/tree/main/docs/security-target), with the fast SFR-status table in [docs/niap-ppca-gap-matrix.md](https://github.com/czinda/hoike/blob/main/docs/niap-ppca-gap-matrix.md).
 
 ## How hoike fits the profiles
 
@@ -10,7 +10,7 @@
 | Protection Profile for Application Software | The hoike binaries as an application on a Red Hat Enterprise Linux platform | Six functional requirements open |
 | Functional Package for TLS | The admin, metrics, forward-proxy, and LDAPS channels | Server side largely aligned; ciphersuite selection and client-side activities open |
 
-The draft Security Targets were written against PP for Certification Authorities v2.1, PP for Application Software v1.4, and TLS Functional Package v1.1. NIAP has since published newer TLS package versions; the STs will be rebased on whatever versions NIAP accepts when an evaluation is scheduled.
+The Security Target package ships one ST per document: [hoike-st-app-pp-v1.4.md](https://github.com/czinda/hoike/blob/main/docs/security-target/hoike-st-app-pp-v1.4.md) (PP for Application Software v1.4), [hoike-st-ppca-v2.1.md](https://github.com/czinda/hoike/blob/main/docs/security-target/hoike-st-ppca-v2.1.md) (PP for Certification Authorities v2.1 / PP 420, scoped to hoike's OCSP-responder role — issuance and CA-key-custody SFRs are marked N/A), and [hoike-st-tls-fp-v1.1.md](https://github.com/czinda/hoike/blob/main/docs/security-target/hoike-st-tls-fp-v1.1.md) (TLS Functional Package v1.1, reflecting the implemented per-CA forwarding roots). NIAP has since published newer TLS package versions; the STs will be rebased on whatever versions NIAP accepts when an evaluation is scheduled.
 
 ## What is aligned today
 
@@ -20,7 +20,7 @@ The draft Security Targets were written against PP for Certification Authorities
 - **Trusted path for administration.** Dedicated TLS listener with optional mutual TLS; TLS 1.2 and 1.3 only.
 - **Trusted channels between components.** HTTPS-only nonce forwarding without redirects; LDAPS or StartTLS-before-bind for directory synchronization; Ed25519-signed gossip broadcasts with named-origin authorization.
 - **Roles and management functions.** Administrator, Operator, and Viewer roles enforced per route.
-- **Third-party library inventory.** Locked dependency set, `cargo audit` in CI, zero known advisories at the 0.2.0 lockfile.
+- **Third-party library inventory.** Locked dependency set, `cargo audit` in CI; the audit reports zero vulnerabilities at the current lockfile (the October 2026 RustSec advisory batch was remediated; one non-fatal warning remains — `rustls-pemfile` unmaintained).
 - **No default credentials, no PII collection, bounded inputs.**
 
 ## What is open

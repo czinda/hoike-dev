@@ -1,6 +1,6 @@
 # Testing
 
-hoike has 200 tests on the default build (218 with the tls, metrics, and dogtag-sync features enabled) across 6 crates covering unit, integration, end-to-end, conformance, seal verification, ML-DSA, key rotation, and live nonce signing.
+hoike has 311 tests on the default build (338 with `--features tls,metrics,pkcs11,dogtag-sync`) across 6 crates covering unit, integration, end-to-end, conformance, seal verification, bundle admission, state locking and installation, ML-DSA, key rotation, and live nonce signing.
 
 ## Running all tests
 
@@ -62,11 +62,12 @@ cargo test -p ahu --tests
 Located in `crates/hoike-core/tests/anti_rollback.rs`. These verify the
 epoch chain enforcement:
 
-- Accept a bundle with epoch > current epoch
-- Reject a bundle with epoch <= current epoch (rollback)
-- Reject a bundle with incorrect parent hash (fork)
-- Accept epoch 1 with null parent hash (initial load)
-- Reject epoch 2+ with null parent hash (missing chain)
+- Accept a bundle with an epoch above the current high-water mark
+- Reject a bundle with a lower epoch (rollback)
+- Accept an identical generation on restart (same epoch, identical manifest digest)
+- Reject two bundles claiming the same epoch with different content (fork)
+- Accept any epoch on a first run with no prior state
+- Keep marks unchanged when persistence or a reload fails, and recover committed snapshots
 
 ```sh
 cargo test -p hoike-core --test anti_rollback
@@ -88,26 +89,26 @@ cargo test -p hoike-server --test conformance
 Each test function is named after the check it validates:
 
 ```
-conformance::get_valid_request
-conformance::post_valid_request
-conformance::post_wrong_content_type
-conformance::oversized_request_rejected
-conformance::non_minimal_der_rejected
-conformance::trailing_bytes_rejected
-conformance::multi_certid_rejected
-conformance::sha256_certid_response
-conformance::sha1_certid_compat
-conformance::good_status
-conformance::revoked_status_with_reason
-conformance::unknown_ca_unauthorized
-conformance::unknown_serial_unauthorized
-conformance::bykey_responder_id
-conformance::nonce_not_echoed
-conformance::overlong_nonce_rejected
-conformance::content_type_header
-conformance::cache_control_header
-conformance::etag_header
-conformance::last_modified_expires_headers
+conformance::good_serial_returns_successful
+conformance::revoked_has_reason
+conformance::nextupdate_present
+conformance::responder_id_by_key
+conformance::unauthorized_on_unknown
+conformance::nonce_0_malformed
+conformance::nonce_1_accepted
+conformance::nonce_15_accepted
+conformance::nonce_16_must_accept
+conformance::nonce_32_must_accept
+conformance::nonce_33_accepted
+conformance::nonce_128_accepted
+conformance::nonce_129_malformed
+conformance::http_content_type
+conformance::http_content_type_on_error
+conformance::http_cache_control
+conformance::http_etag
+conformance::error_no_caching
+conformance::get_method
+conformance::sha256_certid_supported
 ```
 
 ### ML-DSA tests
@@ -126,30 +127,20 @@ and verification:
 cargo test -p hoike-sign -- ml_dsa
 ```
 
-## Test data generation
+## Test data and fixtures
 
-The `testdata/generate.rs` script creates test certificates, keys, CRLs,
-and serial lists used by the test suite. Run it to regenerate test
-fixtures:
+Test certificates, keys, CRLs, and bundles are generated inline by each
+suite's helpers — for example `build_conformance_bundle` in
+`crates/hoike-server/tests/conformance.rs` and `make_bundle` in
+`crates/hoike-core/tests/anti_rollback.rs` — so `cargo test` works from a
+fresh clone with no separate generation step.
 
-```sh
-cargo run --example generate -p hoike-cli
-```
+Shared committed fixtures live in `testdata/`:
 
-This produces:
-
-| File | Contents |
+| Path | Contents |
 |------|----------|
-| `testdata/ca.crt` | Test CA certificate (self-signed, P-256) |
-| `testdata/ca.key` | Test CA private key |
-| `testdata/ocsp.crt` | Delegated OCSP responder certificate |
-| `testdata/ocsp.key` | OCSP responder private key |
-| `testdata/ee*.crt` | End-entity certificates |
-| `testdata/ca.crl` | CRL with one revoked certificate |
-| `testdata/good-serials.txt` | Serial numbers of non-revoked certificates |
-
-The test data is committed to the repository so that `cargo test` works
-without running the generator first.
+| `testdata/hoike-test.toml` | Test configuration |
+| `testdata/wire-profile-0.1/` | Independently generated golden vectors for the frozen ahu 0.1 wire profile (minimal-full and dual-algorithm bundles) |
 
 ## Writing new tests
 
@@ -190,18 +181,32 @@ async fn new_conformance_check() {
 }
 ```
 
-4. Update the conformance check table in
+5. Update the conformance check table in
    `doc/src/compliance/rfc-support.md`
 
 ## Continuous integration
 
-The CI pipeline runs:
+CI (`.github/workflows/ci.yml` in the repository) runs:
 
-```sh
-cargo fmt --check          # Formatting
-cargo clippy --workspace   # Lints
-cargo test --workspace     # All tests
-cargo doc --workspace --no-deps  # Documentation builds
-```
+- **Check and lint** — the web UI is built first (`npm ci`, `tsc --noEmit`,
+  `vite build`) so the all-features clippy gate (which includes the
+  `embed-webui` feature) always compiles against a real UI build; then
+  `cargo check --workspace --locked`, a `pkcs11` feature check, all-features
+  clippy with `-D warnings`, and `cargo fmt --check`.
+- **Test matrix** — the default workspace suite runs on stable and nightly
+  (nightly is allowed to fail); the stable leg additionally runs the feature
+  suite (`--features tls,metrics,pkcs11,dogtag-sync`), the runtime-independent
+  ahu profile (`cargo check`/`cargo test -p ahu --no-default-features`), and a
+  release-mode parser regression
+  (`overflowing_entry_offsets_never_panic_in_heap_or_mmap`).
+- **Platform matrix** — the state-machine suites (`state_lock`,
+  `anti_rollback`, and `installation` in hoike-core) run on both Linux and
+  macOS, because flock-based writer exclusion, strict state reopen, and
+  durable installation behave differently across kernels; both platforms are
+  required before release.
+- **Security audit** — `cargo audit` runs against the lockfile on `main` and
+  on a monthly schedule; it is currently green (zero vulnerabilities, one
+  non-fatal unmaintained-crate warning).
 
-All four checks must pass before a pull request can be merged.
+CI also builds release binaries for four targets, publishes a container
+image to GHCR, and cuts releases on `v*` tags.

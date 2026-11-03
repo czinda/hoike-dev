@@ -3,7 +3,7 @@
 This page traces an OCSP request from HTTP arrival to response delivery.
 Every step on this path is designed for minimal latency: no heap allocation,
 no cryptographic work, no database queries. The edge serves pre-signed
-bytes from memory-mapped files.
+bytes from bundles loaded into memory.
 
 ## Overview
 
@@ -20,13 +20,14 @@ flowchart TD
     G -->|pass| I[Nonce validation<br/>RFC 9654]
     I --> J{Route by CertID}
     J -->|no match| K[unauthorized]
-    J -->|match| L[Binary search<br/>mmap'd index]
+    J -->|match| L[Binary search<br/>sorted index]
     L -->|hit| M[Write stored<br/>octets verbatim]
-    L -->|miss| N{Authoritative<br/>complete?}
-    N -->|yes| K
-    N -->|no| O[Forward or<br/>unauthorized]
+    L -->|miss| N{Authoritative complete<br/>+ nonce?}
+    N -->|yes| S[Sign fresh unknown<br/>(live) or forward<br/>to signer]
+    N -->|no| K[unauthorized]
     M --> P[HTTP headers<br/>per RFC 9919]
     K --> P
+    S --> P
 ```
 
 ## HTTP method handling
@@ -65,8 +66,8 @@ be `application/ocsp-request`.
 
 ## Size guard
 
-Before parsing, hoike enforces a maximum request size (configurable,
-default 4 KB). OCSP requests are small -- a single-certificate request
+Before parsing, hoike enforces a maximum request size (`server.max_request`,
+default 8192 bytes). OCSP requests are small -- a single-certificate request
 is typically 80-120 bytes. A request exceeding the limit is rejected with
 `malformedRequest`.
 
@@ -128,21 +129,28 @@ hoike validates the request against the RFC 9919 Lightweight OCSP Profile:
 
 ## Nonce validation
 
-If the request contains a nonce extension, hoike applies the rules from
-RFC 9654:
+If the request contains a nonce extension, hoike first validates its length
+per RFC 9654, regardless of policy:
 
-- Nonce length must be between 1 and 32 octets
-- Nonces shorter than 1 octet or longer than 32 octets are rejected
-- The nonce is not echoed in pre-signed responses (RFC 9919 Section 5:
-  nonces are incompatible with pre-production)
+| Nonce length | Behavior |
+|--------------|----------|
+| 0 octets | `malformedRequest` -- a nonce extension with an empty value is invalid |
+| 1 -- 15 octets | Responder MAY omit the nonce from the response |
+| 16 -- 32 octets | Responder MUST accept and reflect the nonce |
+| 33 -- 128 octets | Responder MAY omit the nonce from the response |
+| > 128 octets | `malformedRequest` |
 
-The nonce policy is configurable per CA scope. Options:
+How a valid nonce is then handled is a per-CA policy (`nonce_policy` in the
+`[[ca]]` section):
 
 | Policy | Behavior |
 |--------|----------|
-| `reject` | Return `malformedRequest` if nonce present |
-| `ignore` | Accept the request but do not echo the nonce |
-| `warn` | Log a warning and process without nonce |
+| `ignore` (default) | Serve the pre-signed response without a nonce; any nonce in the request is ignored. The only policy compatible with pure bundle serving, since pre-signed responses were signed before the request arrived |
+| `forward` | The edge forwards nonce-bearing requests to the CA's `forward_to` signer, which signs a fresh response containing the nonce. No-entry requests are also forwarded when the scope is authoritative-complete, so the signer can produce a signed unknown (see below). Requests without a nonce are served from the local bundle |
+| `live` | The signer or combined node signs a fresh response containing the nonce for every request. Works with ECDSA file keys and PKCS#11 HSM signing keys; not valid on keyless edges |
+
+See [Nonce Policies](../operator/nonce-policies.md) for the operational
+trade-offs between the three.
 
 ## CertID routing
 
@@ -184,22 +192,24 @@ algorithm) into a uniform 32-byte key.
 
 ### Binary search
 
-The index is a sorted array of 44-byte records in the memory-mapped bundle.
+The index is a sorted array of 48-byte records in the loaded bundle.
 hoike performs a standard binary search:
 
 ```
-Index region (mmap'd):
+Index region (in memory):
 +--------+--------+--------+--------+--------+
 | rec[0] | rec[1] | rec[2] | ...    | rec[N] |
 +--------+--------+--------+--------+--------+
-  44 B      44 B     44 B             44 B
+   48 B      48 B     48 B             48 B
 
 Each record:
-  [entry_key: 32 B] [offset: 8 B] [length: 4 B]
+  [entry_key: 32 B] [offset: 8 B] [length: 4 B] [flags: 2 B] [discriminator: 2 B]
 ```
 
-For a bundle with N entries, lookup requires at most ceil(log2(N))
-comparisons:
+Records are sorted by `(entry_key, discriminator)`, so in a dual-algorithm
+bundle the ECDSA and ML-DSA variants of the same certificate sit adjacent
+and one search finds both. For a bundle with N entries, lookup requires at
+most ceil(log2(N)) comparisons:
 
 | Entries | Max comparisons |
 |---------|-----------------|
@@ -214,24 +224,31 @@ On a hit, the index record yields an offset and length into the data
 region. hoike writes those bytes directly to the HTTP response body:
 
 ```rust
-// Conceptual hot path (no actual allocation)
-let data_slice = &mmap[data_start + offset .. data_start + offset + length];
+// Conceptual hot path
+let data_slice = &bundle_data[data_start + offset .. data_start + offset + length];
 response_body.write_all(data_slice);
 ```
 
 No deserialization, no re-encoding, no signing. The bytes in the data
 region are a complete, valid `OCSPResponse` DER encoding.
 
-### Miss: unauthorized or forward
+### Miss: signed unknown or unauthorized
 
 If the entry key is not found in the index:
 
-- **Authoritative-complete mode**: The bundle claims to contain responses
-  for all certificates issued by this CA. A miss means the serial number
-  was never issued, so hoike returns `unauthorized`.
-- **Non-authoritative mode**: The bundle may be a partial working set.
-  A miss can be forwarded to a fallback responder or returned as
-  `unauthorized` (configurable).
+- **Authoritative-complete scope, nonce present**: The bundle asserts that
+  it contains responses for every certificate issued by this CA, so a serial
+  with no stored entry is provably never-issued. A signer or combined node
+  signs a fresh RFC 6960 `certStatus: unknown` response on demand (the
+  signed-unknown path). A keyless edge with `nonce_policy = "forward"`
+  forwards the request to the scope's `forward_to` signer, which synthesizes
+  the signed unknown.
+- **Authoritative-complete scope, no nonce**: The unsigned `unauthorized`
+  error (RFC 9919 Section 3.2.3). A pre-signed bundle cannot carry a nonce,
+  so the provably never-issued answer degrades to the unsigned error.
+- **Partial scope**: The bundle is a working set, not the full issuance. An
+  out-of-scope CertID is answered with the unsigned `unauthorized` error --
+  the edge never fabricates a `good` for a serial it cannot see.
 
 ## HTTP response headers
 
@@ -264,8 +281,9 @@ hoike edge nodes.
 | Condition | OCSP response status | HTTP status |
 |-----------|----------------------|-------------|
 | Unparseable request | `malformedRequest` (1) | 200 |
-| Unknown CA | `unauthorized` (6) | 200 |
-| Unknown serial (authoritative) | `unauthorized` (6) | 200 |
+| Out-of-scope CertID (no matching CA) | `unauthorized` (6) | 200 |
+| No entry, partial scope or no nonce | `unauthorized` (6) | 200 |
+| No entry, authoritative-complete + nonce | Signed response, `certStatus: unknown` | 200 |
 | Request too large | `malformedRequest` (1) | 200 |
 | Server error | `internalError` (2) | 200 |
 

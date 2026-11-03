@@ -108,9 +108,22 @@ All paths are relative to `/api/admin`. All require a bearer token except `POST 
 |--------|------|------|-------------|
 | `POST` | `/bundles/reload` | operator | Re-read `bundle_dir`, applying seal trust and anti-rollback checks |
 | `POST` | `/bundles/inspect` | operator | Parse a bundle and return its manifest |
-| `POST` | `/bundles/verify` | operator | Verify a bundle's seal against the configured trust policy |
+| `POST` | `/bundles/verify` | operator | Verify a bundle's seal against the configured trust policy; see the contract below |
 | `POST` | `/bundles/diff` | operator | Compare two generations |
 | `POST` | `/bundles/apply` | operator | Materialize deltas; output is **unsigned** unless a seal key is available on this node |
+
+### Bundle verification contract
+
+`POST /bundles/verify` uses the running server's trust policy and never conflates structural validity with authentication. The response reports:
+
+| Field | Meaning |
+|-------|---------|
+| `trust_status` | `"authenticated"` when the CMS seal verifies under the configured pins/anchors and scope authorizations; `"failed"` otherwise |
+| `trust_error` | `null` on success; the failure reason when `trust_status` is `"failed"` |
+| `signer_sha256` | SHA-256 fingerprint (hex) of the DER signer certificate on authenticated input; `null` when the signer is untrusted |
+| `overall_ok` | `true` only when the seal is authenticated **and** all structural checks pass |
+
+A structurally valid but untrusted upload returns HTTP 200 with `overall_ok: false`, `trust_status: "failed"`, a `trust_error`, and a null `signer_sha256` — structure-only success never reports overall success. Malformed input returns HTTP 400. The demo admission flag (`storage.allow_unauthenticated_bundles`) cannot make this route claim authentication.
 
 ### Signing and rotation (signer or combined mode only)
 

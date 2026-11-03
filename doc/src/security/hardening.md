@@ -19,9 +19,9 @@ An edge node holds no signing keys, so compromising one cannot produce a false `
 
 | Control | Setting |
 |---------|---------|
-| Keys in an HSM | `signing_key = { type = "pkcs11", module = "...", token_label = "...", key_label = "...", pin_env = "HOIKE_HSM_PIN" }`. A forthcoming release refuses file and demo keys in signer and combined modes unless `allow_software_keys = true` is set and audited; treat any file-key configuration as non-production now |
+| Keys in an HSM | `signing_key = { type = "pkcs11", module = "...", token_label = "...", key_label = "...", pin_env = "HOIKE_HSM_PIN" }`. Production file and PKCS#11 signing keys now require a complete `seal_key` + `seal_cert` pair, with seal/OCSP key separation enforced (a configuration reusing the OCSP key for sealing is rejected); demo signing remains available for testing and generates a distinct ephemeral seal pair |
 | PIN never in the config file | Use `pin_env`, or omit both `pin` and `pin_env` to be prompted interactively at startup |
-| Separate seal key | `seal_key` and `seal_cert` distinct from the OCSP signing key |
+| Separate seal key | `seal_key` and `seal_cert`, configured as a pair and required for production signing keys; separation from the OCSP signing key is enforced, and the pair is proven with a real CMS preflight seal on every load and signing pass |
 | Authenticated sources | CRL: `issuer_cert` required. Directory: `tls = "ldaps"` or `"starttls"`, `ca_cert`, `bind_password_env` |
 | Delegated responder certificate | `responder_cert` with the `id-kp-OCSPSigning` EKU, short lifetime, and `key_rotation` configured so expiry is caught early |
 | No inbound OCSP on the signer | `mode = "signer"`; edges serve, the signer only produces |
@@ -31,7 +31,7 @@ An edge node holds no signing keys, so compromising one cannot produce a false `
 
 | Control | Setting |
 |---------|---------|
-| Seal trust policy configured | `storage.seal_signer_pins` or `storage.seal_trust_anchors`, plus `seal_authorizations` where one signer must not seal another CA's bundle. See [Seal Trust Policy](../operator/seal-trust.md) |
+| Seal trust policy configured | `storage.seal_signer_pins` or `storage.seal_trust_anchors`, plus `seal_authorizations` where one signer must not seal another CA's bundle. See [Seal Trust Policy](../operator/seal-trust.md). Admission is fail-closed: without configured trust, bundles are rejected; only an explicit `storage.allow_unauthenticated_bundles = true` (with no other trust configured) permits structure-only demo admission |
 | Anti-rollback state persisted | `storage.state_db` on durable local storage; never delete high-water marks to "fix" a load failure |
 | Read-only bundle mount | Mount `bundle_dir` read-only into the container; the edge never writes there |
 | Gossip authenticated | `gossip.identity_key` on every node, `gossip.peer_identities` listing every peer by name; an empty map is permissive mode and is not equivalent to authenticated operation |

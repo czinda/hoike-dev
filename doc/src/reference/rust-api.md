@@ -21,11 +21,13 @@ Key public types and modules:
 |------|-------------|
 | `Bundle` | Top-level type for reading and inspecting an ahu bundle |
 | `BundleBuilder` | Construct a new bundle with manifest, entries, and seal |
-| `Manifest` | CBOR-encoded bundle metadata (CA label, epoch, algorithm, timestamps) |
-| `Entry` | A single CertID-to-response mapping in the bundle |
-| `Seal` | Cryptographic seal binding the manifest and all entries |
-| `verify()` | Verify a bundle's seal, digests, and sort order |
-| `mmap` | Memory-mapped bundle access for zero-copy serving |
+| `FileHeader` | Fixed 64-byte file header (magic, format version, region offsets) |
+| `Manifest` / `CaScope` | CBOR manifest metadata and per-CA scopes (epoch, completeness, window) |
+| `IndexRecord` / `IndexFlags` | Sorted 48-byte index records and their flag bits |
+| `MmapBundle` | Memory-mapped bundle access for zero-copy serving |
+| `verify_structure` / `check_epochs` | Structural verification and anti-rollback epoch checks |
+| `verify_seal` / `verify_seal_with_anchors` / `verify_seal_with_pins` | CMS seal verification, standalone or against configured trust |
+| `apply` / `diff` | Materialize delta bundles and compare generations |
 
 This crate is dual-licensed (Apache-2.0/MIT) so it can be used as a
 dependency without GPL obligations.
@@ -41,13 +43,15 @@ Key public types and modules:
 
 | Item | Description |
 |------|-------------|
-| `Config` | Parsed `hoike.toml` configuration |
+| `Config` | Parsed `hoike.toml` configuration (the `config` module exposes the section types) |
 | `CaConfig` | Per-CA configuration (`[[ca]]` section) |
-| `ServerConfig` | Server mode, listen address, limits |
-| `StorageConfig` | Bundle directory, state DB path, chain limits |
-| `GossipConfig` | SWIM gossip parameters (seeds, bind address, node name) |
-| `NoncePolicy` | Nonce handling strategy (ignore, reject, echo) |
-| `Completeness` | Completeness model for unknown certificates |
+| `ServerConfig` | Server mode, listen address, `max_request` limit |
+| `StorageConfig` | Bundle directory, state DB path, seal trust |
+| `ResponderState` | The loaded working set: scope routing, lookup, hot reload |
+| `LookupResult` / `ScopeDetail` | Serve-time lookup results and per-bundle scope diagnostics |
+| `StateStore` / `StateDirectoryLock` | Durable anti-rollback state and the exclusive writer lock |
+| `ParsedRequest` / `ParsedCertId` / `NonceAction` | Strict request parsing, CertID extraction, RFC 9654 nonce classification |
+| `install_bundle` / `InstallResult` | Authenticated offline bundle installation |
 
 ### hoike-sign
 
@@ -60,12 +64,15 @@ Key public types and modules:
 
 | Item | Description |
 |------|-------------|
-| `Signer` | Main signing orchestrator -- CRL + serials in, sealed bundle out |
-| `ResponseBuilder` | Construct individual OCSP responses |
-| `CrlParser` | Parse PEM or DER CRL files and extract revocation entries |
-| `SigAlgorithm` | Enum of supported signature algorithms (ECDSA, ML-DSA variants) |
-| `CertIdCompat` | CertID hash compatibility mode selection |
-| `EpochManager` | Track and enforce monotonic epoch numbering |
+| `produce_bundle` / `produce_dual_bundle` | Batch production of single- and dual-algorithm bundles |
+| `GenerationConfig` / `CertIdCompat` | Production parameters (epoch, CertID compatibility mode) |
+| `sign_live_response` / `LiveCertStatus` | Live nonce signing, including the signed-unknown path |
+| `CrlSource` / `DogtagSyncSource` | Authenticated CRL and 389 DS syncrepl revocation sources |
+| `RevocationSource` / `StatusSnapshot` / `CertificateStatus` | The revocation source trait and its snapshots |
+| `CaIdentity` | CA label plus issuer name and key bytes for CertID computation |
+| `EcdsaP256Signer` / `MlDsaSignerVariant` | Classical and post-quantum signer bridges |
+| `Pkcs11Signer` / `Pkcs11MlDsaSigner` | PKCS#11 HSM signers (`pkcs11` feature) |
+| `create_cms_seal` / `load_or_generate_seal_material` | CMS seal creation and the seal/OCSP key-separation policy |
 
 ### hoike-server
 
@@ -78,10 +85,12 @@ Key public types and modules:
 
 | Item | Description |
 |------|-------------|
-| `Server` | Top-level server lifecycle (bind, serve, shutdown) |
-| `OcspHandler` | Request parsing, CertID extraction, bundle lookup |
-| `BundleStore` | Thread-safe bundle storage with hot-reload support |
-| `Router` | axum router configuration with OCSP and health endpoints |
+| `AppState` | Shared server state (responder, live signers, gossip handle, admin config) |
+| `SignerContext` / `LiveSignerState` | Per-CA live signing material for nonce responses |
+| `build_router` / `build_admin_router_standalone` | The public OCSP router and the dedicated admin listener router |
+| `build_metrics_router` / `install_metrics` | Prometheus metrics endpoint (`metrics` feature) |
+| `build_forward_clients` | Per-CA forwarding clients with pinned per-CA trust roots |
+| `announce_bundle_scopes` | Broadcast a new bundle's scopes to the gossip mesh |
 
 ### hoike-gossip
 
@@ -94,10 +103,10 @@ Key public types and modules:
 
 | Item | Description |
 |------|-------------|
-| `GossipRuntime` | Manages the foca SWIM protocol instance |
-| `BundleAnnouncement` | Notification payload when a new bundle is available |
-| `PeerState` | Tracked state for each peer in the gossip cluster |
-| `Transport` | UDP transport layer for gossip messages |
+| `GossipNode` | Manages the foca SWIM instance and broadcast handling |
+| `GossipMessage` | Broadcast payloads: `GenerationAnnouncement` and `UrgentRevocation` |
+| `GossipConfig` / `AuthMode` | Gossip parameters and the broadcast authentication policy (`required` / `permissive`) |
+| `GossipSigner` / `GossipVerifier` / `load_authentication` | Ed25519 broadcast signing and verification |
 
 ### hoike-cli
 

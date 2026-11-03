@@ -10,12 +10,12 @@ at the perimeter, or in third-party hosting environments.
 ```mermaid
 flowchart LR
     Client -->|OCSP Request| Edge
-    Edge -->|lookup by CertID| Bundle["ahu Bundle (mmap)"]
+    Edge -->|lookup by CertID| Bundle["ahu Bundle (in-memory)"]
     Bundle -->|pre-signed bytes| Edge
     Edge -->|OCSP Response| Client
 ```
 
-1. An ahu bundle is loaded into memory via `mmap`.
+1. An ahu bundle is loaded into memory at startup (and on hot reload).
 2. The sorted index inside the bundle enables **O(log n) binary search** by CertID.
 3. On a hit, the edge returns the pre-signed response bytes — no cryptographic
    operations, no key material involved.
@@ -44,8 +44,8 @@ state_db   = "/var/lib/hoike/state"
 | `state_db` | Persists epoch high-water marks for anti-rollback protection. **Must survive restarts** — do not place on ephemeral storage. |
 
 > **Note:** The `[[ca]]` sections are still needed on an edge to define routing and
-> nonce policy, but signing-related fields (`signing`, `sig_alg`, `responder_key`)
-> are ignored in edge mode.
+> nonce policy, but signing-related fields (`signing_key`, `sig_alg`, `seal_key`,
+> `seal_cert`) are not used in edge mode.
 
 ## Response Lookup
 
@@ -57,7 +57,7 @@ When an OCSP request arrives, the edge resolves it in two steps:
 
 2. **Binary search by serial number** — Within the matched bundle, the sorted index
    is searched for the certificate's serial number. The index is designed for
-   cache-friendly, branchless binary search on mmap'd memory.
+   cache-friendly, branchless binary search over the in-memory index.
 
 If no bundle matches the issuerKeyHash, or the serial number is not in the index,
 the edge returns `unauthorized`. It does not proxy to the signer, attempt to sign,
@@ -114,6 +114,28 @@ scp signer:/var/lib/hoike/bundles/enterprise-issuing-01.ahu \
 
 Verify bundles before import with `ahu verify` — see the
 [air-gap guide](air-gap.md) for the full procedure.
+
+## Hot Reload
+
+Serving nodes re-read the bundle directory on a poll loop rather than requiring a
+restart to pick up new bundles:
+
+- **Poll interval** — controlled by the `HOIKE_RELOAD_INTERVAL_SECS` environment
+  variable (default **15 seconds**). It is an environment variable, not a TOML key.
+- **Same checks as startup** — admission on reload runs the exact authenticated
+  checks used at startup (seal trust, anti-rollback, profile restrictions). It is
+  fail-closed: a bundle that would be rejected at startup is rejected on reload.
+- **Atomic swap** — a successful reload atomically swaps the new generation into
+  the serving path; requests never observe a partially loaded bundle.
+- **Failed reload keeps serving** — if admission of the new directory contents
+  fails, the previous generation keeps serving. A bad bundle never takes the
+  edge down.
+
+This enables a signer → shared volume → edge publishing model: the signer writes
+each new bundle into a directory visible to the edges, and the edges pick it up
+on the next poll — no pull-on-announce round trip required. Gossip announcements
+and scheduled fetch remain fully supported for deployments without a shared
+volume.
 
 ## Cache-Control Headers
 
@@ -172,7 +194,7 @@ by the network layer.
 
 | Path | Contents | Persistence |
 |------|----------|-------------|
-| `bundle_dir` | ahu bundle files | Replaceable — bundles can be re-fetched from the signer. Use fast local storage for mmap performance. |
+| `bundle_dir` | ahu bundle files | Replaceable — bundles can be re-fetched from the signer. Use fast local storage to keep reload and startup times short. |
 | `state_db` | Epoch high-water marks | **Must persist** across restarts and redeployments. Loss of state_db disables anti-rollback protection until the next full bundle is loaded. |
 
 ### Sizing
@@ -196,9 +218,15 @@ When `[server.admin]` is configured, edge nodes expose a REST API at `/api/admin
 
 See [Configuration Reference](configuration.md#serveradmin) for setup.
 
-## MmapBundle: Zero-Copy Serving
+## In-Memory Serving and MmapBundle
 
-For large-scale deployments (millions of certificates), hoike uses `MmapBundle` — a zero-copy bundle reader backed by `MAP_PRIVATE` memory mapping. At 100 million entries (~45 GB with ECDSA), the process uses ~200 MB RSS instead of 45 GB heap, with sub-100ms startup time. Binary search runs directly on the mmap'd index region with zero allocation on the hot path.
+The serving path loads bundles fully into memory and binary-searches the index
+there — no cryptographic operations and no allocation on the hot path.
+
+`MmapBundle` — a zero-copy bundle reader backed by `MAP_PRIVATE` memory mapping,
+which serves binary search directly off the mapped file — is a library feature
+in the ahu crate and is **not yet used in the serving hot path**. Do not size
+edge memory assuming mmap semantics: the full bundle payload is resident.
 
 ## Operational Monitoring
 
@@ -222,7 +250,6 @@ max_request = 8192
 [storage]
 bundle_dir = "/var/lib/hoike/bundles"
 state_db   = "/var/lib/hoike/state"
-max_chain  = 24
 
 [gossip]
 enabled      = true
